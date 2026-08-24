@@ -15,7 +15,7 @@ import {
   COUNTRIES, SECTIONS, PERIODS, MAP_COUNTRIES, QUOTA, RETENTION, datasetId,
 } from '../public/js/config.js';
 import {
-  DATA_DIR, STATE_DIR, chunk, ensureDir, listDir, log, parseArgs, quotaDate, readJSON, writeJSON,
+  DATA_DIR, STATE_DIR, chunk, ensureDir, listDir, log, parseArgs, quotaDate, readJSON, removeFile, writeJSON,
 } from './lib/util.mjs';
 import { formatPlan, isDue, listsOfJob, planSchedule } from './lib/plan.mjs';
 import { QuotaExceededError, YouTube, publishedAfterFor } from './lib/youtube.mjs';
@@ -316,6 +316,19 @@ const removedSnaps = await pruneSnapshots(now);
 if (removedSnaps.length) log.info(`pruned ${removedSnaps.length} snapshot(s) older than ${RETENTION.snapshotDays} days`);
 const removedShorts = pruneShortsCache(shortsCache, now.getTime());
 if (removedShorts) log.info(`pruned ${removedShorts} stale shorts-cache entries`);
+
+// ORDER §8: 取得した API データの保存は30日以内にリフレッシュまたは削除。
+// 何らかの理由で更新されなくなったデータセットは、ここで消える。
+for (const f of await listDir(DATA_DIR)) {
+  if (!f.endsWith('.json') || f === 'index.json') continue;
+  const d = await readJSON(join(DATA_DIR, f), null);
+  if (!d?.generatedAt) continue;
+  const ageDays = (now.getTime() - Date.parse(d.generatedAt)) / 864e5;
+  if (ageDays > RETENTION.dataMaxAgeDays) {
+    await removeFile(join(DATA_DIR, f));
+    log.warn(`removed ${f}: ${Math.floor(ageDays)} days old (ORDER §8 limit is ${RETENTION.dataMaxAgeDays})`);
+  }
+}
 
 // index.json は public/data の実物から作る（部分実行でも整合する）
 const datasets = {};

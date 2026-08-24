@@ -807,7 +807,8 @@ function bindSwipe(node) {
 
 document.addEventListener('keydown', e => {
   if (state.mode !== 'everyone') return;
-  if (e.target.closest('input, select, textarea')) return;
+  const el0 = e.target instanceof Element ? e.target : null;
+  if (el0 && el0.closest('input, select, textarea, [contenteditable]')) return;
   if (e.key === 'ArrowRight') stepAxis(1);
   else if (e.key === 'ArrowLeft') stepAxis(-1);
 });
@@ -953,7 +954,11 @@ async function boot() {
   await renderCurrentView();
   maybeSwipeHint();
   if ('serviceWorker' in navigator) {
-    window.addEventListener('load', () => navigator.serviceWorker.register('sw.js').catch(() => {}));
+    // boot() は await を挟むため、ここに来た時点で load が既に発火していることがある。
+    // その場合 addEventListener('load') は二度と呼ばれず Service Worker が登録されない。
+    const register = () => navigator.serviceWorker.register('sw.js').catch(() => {});
+    if (document.readyState === 'complete') register();
+    else window.addEventListener('load', register, { once: true });
   }
 }
 

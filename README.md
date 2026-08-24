@@ -39,17 +39,23 @@ The rest of this README is in Japanese (the client's language). The spec of reco
 ### 3-1. ツール不要（Python だけ。いま使える経路）
 
 このリポジトリはビルド工程がありません。`public/` をそのまま静的配信すれば動きます。
-同梱のデータは**モック（サンプル）** なので、API キーが無くても全画面が動きます。
+
+ただし **`public/data/` は git に入っていません**。取得した YouTube API データを履歴に残さない
+ためです（[ORDER §8](docs/ORDER.md)「保存は30日以内にリフレッシュまたは削除」）。
+最初に一度だけモック（サンプル）データを生成してください。API キーが無くても全画面が動きます。
+
+```bash
+python tools/mock.py
+```
 
 ```bash
 python -m http.server 4173 --directory public
 # → http://localhost:4173/ を開く
 ```
 
-モックデータを作り直したいとき（Python 3.10 で動作確認済み）:
+アイコンを作り直したいとき（Python 3.10 で動作確認済み。Pillow 不要）:
 
 ```bash
-python tools/mock.py     # public/data/*.json を再生成
 python tools/icons.py    # public/icons/* を再生成
 ```
 
@@ -87,7 +93,7 @@ npm run validate                      # public/data/*.json を docs/SCHEMA.md �
 | パス | 中身 |
 |---|---|
 | [`docs/`](docs/) | **正本の文書**。`ORDER.md`（発注書＝仕様と運用のすべて）／`SCHEMA.md`（`public/data/*.json` のデータ契約）／`BUDGET.md`（API 割当予算の算出根拠） |
-| [`public/`](public/) | 配信されるもの全部。`index.html` / `app.css` / `app.js` の**3枚に UI を集約**、`js/config.js`（**設定はこの1ファイルだけ**）、`i18n/{en,ja}.json`（全文言）、`data/*.json`（ランキング本体）、`icons/`、`manifest.webmanifest`、`sw.js`、`privacy.html` |
+| [`public/`](public/) | 配信されるもの全部。`index.html` / `app.css` / `app.js` の**3枚に UI を集約**、`js/config.js`（**設定はこの1ファイルだけ**）、`i18n/{en,ja}.json`（全文言）、`data/*.json`（ランキング本体。**git に入れない生成物** — `python tools/mock.py` か `npm run collect` で作る）、`icons/`、`manifest.webmanifest`、`sw.js`、`privacy.html` |
 | `scripts/` | 収集・検証・配信の Node 20 スクリプト。`collect.mjs` / `validate.mjs` / `serve.mjs` と `lib/`（`plan.mjs` = 予算プランナ等） |
 | `tests/` | Playwright の E2E 仕様。CI で実行する（ローカル実行はゲート0 待ち） |
 | [`tools/`](tools/) | Node 非依存のユーティリティ。`mock.py`（モックデータ生成）／`icons.py`（アイコン生成）／`audit.js`（デザイン憲章チェッカ：初見4件以上・タップ44px・WCAG AA・横はみ出し・カード高さ） |

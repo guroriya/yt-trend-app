@@ -9,3 +9,8 @@ Thumbs.db
 .env.*
 public/data/_local/
 public/_dev-*
+
+# 取得した YouTube API データは履歴に残さない（ORDER §8: 30日以内にリフレッシュまたは削除）
+# 配信前に必ず生成する: npm run collect / python tools/mock.py
+public/data/
+state/

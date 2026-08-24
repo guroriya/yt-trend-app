@@ -7,6 +7,7 @@ scripts/*.mjs をブラウザから import して検証するために使う（�
 import sys, http.server, functools
 
 class H(http.server.SimpleHTTPRequestHandler):
+    protocol_version = 'HTTP/1.1'   # Service Worker のスクリプト取得は HTTP/1.0 だと失敗することがある
     extensions_map = {**http.server.SimpleHTTPRequestHandler.extensions_map,
                       '.mjs': 'text/javascript', '.js': 'text/javascript',
                       '.json': 'application/json', '.webmanifest': 'application/manifest+json'}

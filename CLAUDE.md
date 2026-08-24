@@ -53,9 +53,11 @@ HTML / CSS / 表示に関わる JS を変更したコミットの後は、**必�
 - **発注者が手を入れるファイルは少なく大きく。** UI は `public/index.html` /
   `public/app.css` / `public/app.js` の3枚に集約する。細かく割らない。
 - 文言は必ず `public/i18n/{en,ja}.json` に置く。JS/HTML にベタ書きしない。
-- 国・カテゴリ・期間の増減は `scripts/config.mjs` と `public/js/config.js` の
-  **2箇所だけ**で完結させる（ORDER §2-4）。
+- 国・カテゴリ・期間の増減は `public/js/config.js` の **1箇所だけ**で完結する（ORDER §2-4）。
+  フロントも収集スクリプトも同じファイルを import している。増やす前に `docs/BUDGET.md` を更新すること。
 - 収集スクリプトは Node 20（GitHub Actions 上で実行）。ローカル Node は必須ではない。
+- **`public/data/` と `state/` は git に入れない**（ORDER §8）。配信前に必ず生成する:
+  `python tools/mock.py`（サンプル）または `npm run collect`（実データ・要 `YT_API_KEY`）。
 - YouTube API データの保存は **30日以内にリフレッシュまたは削除**（ORDER §8）。
   スナップショットは 31 日で自動削除。
 

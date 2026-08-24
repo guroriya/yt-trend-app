@@ -72,6 +72,17 @@ jobs:
 
       # ビルド工程は無い（ORDER §3）。public/ をそのまま成果物にする。
       # public/ の外（scripts/ state/ docs/ など）は一切含めない。
+      # public/data は git に入れない（ORDER §8: 取得データを履歴に残さない）。
+      # このワークフローは「コミット済みの静的資産＋サンプルデータ」を公開する用途なので、
+      # ここで必ずサンプルを生成する。実データの公開は collect.yml の役目。
+      - name: Python を用意（tools/mock.py 用）
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+
+      - name: サンプルデータを生成
+        run: python tools/mock.py
+
       - name: public/ を Pages 成果物にする
         uses: actions/upload-pages-artifact@v3
         with:

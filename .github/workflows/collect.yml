@@ -100,13 +100,12 @@ jobs:
         id: state-restore
         uses: actions/cache/restore@v4
         with:
-          # docs/SCHEMA.md は _budget.json / _shorts_cache.json を public/data/ 配下と
-          # 定義しており、収集スクリプトの内部仕様（state/ 配下）と食い違っている。
-          # どちらに書かれても引き継げるよう両方を対象にしておく（無い path は無視される）。
+          # public/data は git に入れない（ORDER §8）。1回の実行では「実行すべきジョブ」の
+          # ぶんしか再生成されないので、前回までの集計結果もキャッシュで引き継ぐ。
+          # 30日を超えた古いデータセットは収集スクリプトが削除する（ORDER §8）。
           path: |
             state
-            public/data/_budget.json
-            public/data/_shorts_cache.json
+            public/data
           key: ytta-state-v1-${{ github.run_id }}-${{ github.run_attempt }}
           restore-keys: |
             ytta-state-v1-
@@ -117,7 +116,7 @@ jobs:
           set -eo pipefail
           # 存在しない path があると find は 1 を返す（未収集の初回など）。
           # pipefail と組み合わさると誤って失敗するので握りつぶす。
-          sha=$( { find state public/data/_budget.json public/data/_shorts_cache.json \
+          sha=$( { find state public/data \
                     -type f 2>/dev/null || true; } \
                  | LC_ALL=C sort | xargs -r sha256sum | sha256sum | cut -d' ' -f1 )
           echo "sha=$sha" >> "$GITHUB_OUTPUT"
@@ -175,6 +174,20 @@ jobs:
           echo "node scripts/collect.mjs ${args[*]}"
           node scripts/collect.mjs ${args[@]+"${args[@]}"}
 
+      # public/data は git に入れないので、キャッシュにも無い初回や
+      # ゲートA 未完了のときは中身が空になる。その場合だけサンプルを作る。
+      # 既に実データがあるときは触らない（上書き事故の防止）。
+      - name: データが無ければサンプルを生成
+        if: ${{ !cancelled() }}
+        run: |
+          set -eo pipefail
+          if [ -f public/data/index.json ]; then
+            echo "public/data は既に存在します（$(ls public/data | wc -l) ファイル）。サンプル生成はしません。"
+          else
+            echo '::notice title=サンプルデータを生成します::public/data が空でした（初回、またはゲートA 未完了）。'
+            python3 tools/mock.py
+          fi
+
       # 検証は収集の有無にかかわらず必ず走らせる。
       # モックデータであっても docs/SCHEMA.md に適合していなければ公開しない。
       - name: スキーマ検証
@@ -188,7 +201,7 @@ jobs:
         if: ${{ !cancelled() }}
         run: |
           set -eo pipefail
-          sha=$( { find state public/data/_budget.json public/data/_shorts_cache.json \
+          sha=$( { find state public/data \
                     -type f 2>/dev/null || true; } \
                  | LC_ALL=C sort | xargs -r sha256sum | sha256sum | cut -d' ' -f1 )
           echo "sha=$sha" >> "$GITHUB_OUTPUT"
@@ -202,8 +215,7 @@ jobs:
         with:
           path: |
             state
-            public/data/_budget.json
-            public/data/_shorts_cache.json
+            public/data
           key: ytta-state-v1-${{ github.run_id }}-${{ github.run_attempt }}
 
       # ORDER §8:「取得した API データを git に残さない」ことの明示的な確認。

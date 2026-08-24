@@ -225,6 +225,7 @@ def make_list(country, section, period, category, size, days, metric="published"
 
 
 def main():
+    with_growth = "--growth" in sys.argv
     countries, sections, periods, cats, map_countries = read_config()
     os.makedirs(OUT, exist_ok=True)
     for f in os.listdir(OUT):
@@ -245,6 +246,22 @@ def main():
                     with open(os.path.join(OUT, name + ".json"), "w", encoding="utf-8") as fh:
                         json.dump(data, fh, ensure_ascii=False, separators=(",", ":"))
                     datasets[name] = {"generatedAt": data["generatedAt"], "count": len(data["items"]), "stale": False}
+                    written += 1
+
+    # 「伸び」ランキング（ORDER §2-14）。--growth のときだけ生成する。
+    growth_periods = []
+    if with_growth:
+        growth_periods = [p["id"] for p in periods if p["id"] in ("24h", "week", "month")]
+        for c in countries:
+            for s_ in sections:
+                for pid in growth_periods:
+                    per = next(p for p in periods if p["id"] == pid)
+                    data = make_list(c, s_, pid, "all", per["size"], per["days"], metric="growth")
+                    name = f"{c}-{s_}-{pid}-all-growth"
+                    with open(os.path.join(OUT, name + ".json"), "w", encoding="utf-8") as fh:
+                        json.dump(data, fh, ensure_ascii=False, separators=(",", ":"))
+                    datasets[name] = {"generatedAt": data["generatedAt"],
+                                      "count": len(data["items"]), "stale": False}
                     written += 1
 
     # 世界地図
@@ -286,7 +303,12 @@ def main():
         "countries": countries,
         "datasets": datasets,
         "features": {
-            "growth": {"enabled": False, "daysCollected": 0, "requiredDays": 3, "periods": []},
+            "growth": {
+                "enabled": bool(growth_periods),
+                "daysCollected": 7 if growth_periods else 0,
+                "requiredDays": 3,
+                "periods": growth_periods,
+            },
             "map": True, "tags": True,
         },
         "quota": {"spentToday": 0, "dailyUnits": 10000, "degraded": False},
@@ -295,7 +317,8 @@ def main():
     with open(os.path.join(OUT, "index.json"), "w", encoding="utf-8") as fh:
         json.dump(index, fh, ensure_ascii=False, separators=(",", ":"))
 
-    print(f"mock: {written} ranking files + map.json + tags + index.json -> public/data/")
+    print(f"mock: {written} ranking files + map.json + tags + index.json -> public/data/"
+          + ("  [growth enabled]" if growth_periods else ""))
 
 
 if __name__ == "__main__":

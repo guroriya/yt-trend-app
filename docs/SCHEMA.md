@@ -5,6 +5,10 @@
 
 すべての JSON は UTF-8 / 改行なし（minify）／`schemaVersion` 必須。
 
+**`public/data/` は git に入れない**（ORDER §8: 取得した API データを履歴に残さないため）。
+配信前に必ず生成する — APIキーがあれば `npm run collect`、無ければ `python tools/mock.py`。
+`state/` も git に入れない（GitHub Actions の `actions/cache` で引き継ぐ）。
+
 ---
 
 ## 1. ファイル名
@@ -14,9 +18,11 @@ public/data/index.json                      … 目次・機能フラグ
 public/data/{country}-{section}-{period}-{category}[-growth].json  … ランキング本体
 public/data/map.json                        … 世界地図タブ（各国1位）
 public/data/tags-{country}.json             … タグ／頻出ワードの勢い
-public/data/_budget.json                    … API 消費カウンタ（内部用・UI は読まない）
-public/data/_shorts_cache.json              … ショート判定キャッシュ（内部用）
-snapshots/{YYYY-MM-DD}.json.gz              … 日次スナップショット（31日で自動削除・非公開ディレクトリ）
+state/_budget.json                          … API 消費カウンタ（内部用・公開しない）
+state/_shorts_cache.json                    … ショート判定キャッシュ（内部用・30日TTL）
+state/last-run.json                         … ジョブごとの最終実行時刻（planner が使う）
+state/prev/{datasetId}.json                 … 前回の順位（↑↓NEW の比較元。videoId と rank のみ）
+state/snapshots/{YYYY-MM-DD}.json.gz        … 日次スナップショット（31日で自動削除）
 ```
 
 - `country` … `JP` / `US`（`COUNTRIES[].code`）
@@ -140,7 +146,7 @@ URL 規約が安定しているため（DECISIONS.md 2026-08-25）。
 ```
 
 `score` は「その語を含む動画の再生数合計を対数圧縮した値」。`delta` は前回集計の順位差。
-言語別ストップワードは `scripts/lib/stopwords.mjs`。
+言語別ストップワードは `scripts/lib/tags.mjs` の `STOPWORDS`。
 
 ---
 
