@@ -63,6 +63,9 @@ jobs:
   collect:
     name: 収集と検証
     runs-on: ubuntu-latest
+    # Actions のキャッシュはブランチ単位で分離される。既定ブランチ以外から実行すると
+    # 別のキャッシュ空間で走り、割当カウンタも公開データも引き継げないまま API を消費する。
+    if: ${{ github.ref_name == github.event.repository.default_branch }}
     timeout-minutes: 30
     permissions:
       contents: read # 読むだけ。push できないトークンにして ORDER §8 を機械的に担保する
@@ -83,6 +86,11 @@ jobs:
 
       # cache の path は「1つも存在しないと保存時にエラー」になるため、
       # state/ は必ず先に作っておく。
+      - name: Python を用意（tools/mock.py 用）
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+
       - name: state/ ディレクトリを用意
         run: mkdir -p state
 
@@ -96,19 +104,30 @@ jobs:
       # なお ORDER §8 のスナップショット 31 日削除は収集スクリプト側の責務。
       # キャッシュ自体も 7 日間参照されないと GitHub 側で自動削除される（＝保存は 30 日を超えない）。
       # -------------------------------------------------------------------------
+      # state と public/data を別キャッシュにしているのは保存条件が違うから:
+      #   state      … 割当カウンタ。検証が落ちても**必ず**保存する（消費は取り返せない）
+      #   public/data … 公開する集計結果。スキーマ検証を通ったときだけ保存する
+      #                 （壊れたデータをキャッシュに焼き付けると次回以降も壊れたまま公開される）
       - name: state/ を復元
         id: state-restore
         uses: actions/cache/restore@v4
         with:
-          # public/data は git に入れない（ORDER §8）。1回の実行では「実行すべきジョブ」の
-          # ぶんしか再生成されないので、前回までの集計結果もキャッシュで引き継ぐ。
-          # 30日を超えた古いデータセットは収集スクリプトが削除する（ORDER §8）。
-          path: |
-            state
-            public/data
+          path: state
           key: ytta-state-v1-${{ github.run_id }}-${{ github.run_attempt }}
           restore-keys: |
             ytta-state-v1-
+
+      # public/data は git に入れない（ORDER §8）。1回の実行では「実行すべきジョブ」の
+      # ぶんしか再生成されないので、前回までの集計結果もキャッシュで引き継ぐ。
+      # 30日を超えた古いデータセットは収集スクリプト側が削除する（ORDER §8）。
+      - name: public/data を復元
+        id: data-restore
+        uses: actions/cache/restore@v4
+        with:
+          path: public/data
+          key: ytta-data-v1-${{ github.run_id }}-${{ github.run_attempt }}
+          restore-keys: |
+            ytta-data-v1-
 
       - name: 復元直後の state/ を指紋化
         id: state-before
@@ -185,12 +204,19 @@ jobs:
             echo "public/data は既に存在します（$(ls public/data | wc -l) ファイル）。サンプル生成はしません。"
           else
             echo '::notice title=サンプルデータを生成します::public/data が空でした（初回、またはゲートA 未完了）。'
-            python3 tools/mock.py
+            python tools/mock.py
           fi
 
       # 検証は収集の有無にかかわらず必ず走らせる。
       # モックデータであっても docs/SCHEMA.md に適合していなければ公開しない。
+      # ORDER §8 の保持期間は APIキーの有無と無関係に守る必要がある。
+      # キーが外された・失効したまま放置されても、古い取得データが残り続けないようにする。
+      - name: 保持期間の掃除（ORDER §8）
+        if: ${{ !cancelled() }}
+        run: node scripts/retention.mjs
+
       - name: スキーマ検証
+        id: validate
         run: node scripts/validate.mjs
 
       # 実行結果を state/ に持つ収集スクリプトのために、検証が落ちても
@@ -198,7 +224,7 @@ jobs:
       # 「API は消費したのにカウンタが巻き戻る」＝二重消費になる。
       - name: 実行後の state/ を指紋化
         id: state-after
-        if: ${{ !cancelled() }}
+        if: ${{ always() }}
         run: |
           set -eo pipefail
           sha=$( { find state public/data \
@@ -209,14 +235,23 @@ jobs:
       # 変化が無いときに保存しないのは、毎時の実行で同じ内容のキャッシュが
       # 積み上がり、リポジトリのキャッシュ上限（10GB / LRU 削除）を食い潰して
       # 他ワークフローのキャッシュを追い出すのを避けるため。
+      #
+      # state は always()。検証が落ちても、ジョブがキャンセルされても、
+      # 割当カウンタだけは必ず残す（消費済みの割当は取り返せない）。
       - name: state/ を保存
-        if: ${{ !cancelled() && steps.state-after.outputs.sha != steps.state-before.outputs.sha }}
+        if: ${{ always() && steps.state-after.outputs.sha != steps.state-before.outputs.sha }}
         uses: actions/cache/save@v4
         with:
-          path: |
-            state
-            public/data
+          path: state
           key: ytta-state-v1-${{ github.run_id }}-${{ github.run_attempt }}
+
+      # public/data は検証を通ったときだけ。壊れたデータを焼き付けない。
+      - name: public/data を保存
+        if: ${{ !cancelled() && steps.validate.outcome == 'success' && steps.state-after.outputs.sha != steps.state-before.outputs.sha }}
+        uses: actions/cache/save@v4
+        with:
+          path: public/data
+          key: ytta-data-v1-${{ github.run_id }}-${{ github.run_attempt }}
 
       # ORDER §8:「取得した API データを git に残さない」ことの明示的な確認。
       # 生成物は作業ツリーと Pages 成果物にだけ存在し、コミットは 1 つも増えない。
@@ -232,7 +267,7 @@ jobs:
             exit 1
           fi
           echo '未コミットの生成物（git には入らず、Pages 成果物としてのみ公開されます）:'
-          git status --short -- public/data state | head -60 || true
+          git status --short --ignored -- public/data state | head -60 || true
 
       # Service Worker のキャッシュ名を公開のたびに変える。
       # ビルド工程が無い（ORDER §3）ので、成果物を作る直前にコミット SHA を差し込む。

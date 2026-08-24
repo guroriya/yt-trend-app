@@ -63,7 +63,7 @@ state/snapshots/{YYYY-MM-DD}.json.gz        … 日次スナップショット�
 
 - フロントは**起動時に必ず `index.json` を読む**。`features.growth.enabled` が false の間、
   「伸び」タブは DOM に出さない（ORDER §2-14「足りたら自動有効化」）。
-- `quota.degraded` が true のとき、UI のフッタに「更新頻度を一時的に下げています」を出す。
+- `quota.degraded` が true のとき、UI のステータスバー（`#statusbar`）に「更新頻度を一時的に下げています」を出す。
 
 ---
 

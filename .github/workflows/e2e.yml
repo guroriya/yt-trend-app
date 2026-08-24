@@ -101,25 +101,23 @@ jobs:
       - name: モックデータを再生成
         run: python tools/mock.py
 
-      # 決定論的な生成なので、コミット済みモックと差分が出る＝
-      # config.js か mock.py が変わったのに public/data を更新し忘れている、という意味。
-      # PR を落とすほどではないので警告に留める。
-      - name: コミット済みモックとの差分を確認（情報提供のみ）
-        run: |
-          set -eo pipefail
-          if ! git diff --quiet -- public/data; then
-            echo '::warning title=モックデータが最新ではありません::python tools/mock.py の出力がコミット済みの public/data と一致しません。`python tools/mock.py` を実行して結果をコミットしてください。'
-            git diff --stat -- public/data || true
-          fi
+      # public/data は .gitignore 済み（ORDER §8）なので「コミット済みとの差分」は取れない。
+      # 代わりに、生成結果がスキーマを満たしていることを確認する。
+      # ここが落ちるなら config.js と tools/mock.py か docs/SCHEMA.md がずれている。
+      - name: モックデータのスキーマ検証
+        run: node scripts/validate.mjs
 
       # Playwright 側の webServer 設定が npm run serve を起動する前提。
       # ここで実データ（YouTube API）は一切使わない＝シークレット不要。
       # そのため fork からの PR でも問題なく実行できる。
       - name: E2E を実行
+        id: e2e
         run: npm run test:e2e
 
+      # failure() だと timeout-minutes による打ち切りのときにレポートが残らない。
+      # キャンセル以外で成功しなかったら必ず上げる。
       - name: 失敗時のレポートを保存
-        if: failure()
+        if: ${{ !cancelled() && steps.e2e.outcome != 'success' }}
         uses: actions/upload-artifact@v4
         with:
           name: playwright-report-${{ github.run_id }}-${{ github.run_attempt }}

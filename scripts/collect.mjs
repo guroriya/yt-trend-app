@@ -15,16 +15,17 @@ import {
   COUNTRIES, SECTIONS, PERIODS, MAP_COUNTRIES, QUOTA, RETENTION, datasetId,
 } from '../public/js/config.js';
 import {
-  DATA_DIR, PREV_DIR, STATE_DIR, chunk, ensureDir, listDir, log, parseArgs, quotaDate, readJSON, removeFile, writeJSON,
+  DATA_DIR, STATE_DIR, chunk, ensureDir, listDir, log, parseArgs, quotaDate, readJSON, writeJSON,
 } from './lib/util.mjs';
 import { formatPlan, isDue, listsOfJob, planSchedule } from './lib/plan.mjs';
 import { QuotaExceededError, YouTube, publishedAfterFor } from './lib/youtube.mjs';
-import { SHORT_MAX_SEC, confirmShorts, pruneShortsCache } from './lib/shorts.mjs';
+import { SHORT_MAX_SEC, confirmShorts } from './lib/shorts.mjs';
 import {
   appendSnapshot, applyRanks, computeGrowthItems, growthFeature, loadPrevRanks,
-  pruneSnapshots, snapshotForDaysAgo, writeIndex, writeList, writeMap, writeTags,
+  snapshotForDaysAgo, writeIndex, writeList, writeMap, writeTags,
 } from './lib/store.mjs';
 import { rankTerms } from './lib/tags.mjs';
+import { runRetention } from './lib/retention.mjs';
 
 const BUDGET_FILE = join(STATE_DIR, '_budget.json');
 const SHORTS_FILE = join(STATE_DIR, '_shorts_cache.json');
@@ -374,34 +375,9 @@ try {
 
 /* -------------------------------------------------------- 後始末と index */
 
-const removedSnaps = await pruneSnapshots(now);
-if (removedSnaps.length) log.info(`pruned ${removedSnaps.length} snapshot(s) older than ${RETENTION.snapshotDays} days`);
-const removedShorts = pruneShortsCache(shortsCache, now.getTime());
-if (removedShorts) log.info(`pruned ${removedShorts} stale shorts-cache entries`);
-
-// state/prev/*.json も videoId を持つ＝API 由来のデータ。30日を超えたものは消す（ORDER §8）。
-for (const f of await listDir(PREV_DIR)) {
-  if (!f.endsWith('.json')) continue;
-  const d = await readJSON(join(PREV_DIR, f), null);
-  const ts = d?.generatedAt ? Date.parse(d.generatedAt) : 0;
-  if (!ts || (now.getTime() - ts) / 864e5 > RETENTION.dataMaxAgeDays) {
-    await removeFile(join(PREV_DIR, f));
-    log.info(`pruned state/prev/${f} (older than ${RETENTION.dataMaxAgeDays} days)`);
-  }
-}
-
-// ORDER §8: 取得した API データの保存は30日以内にリフレッシュまたは削除。
-// 何らかの理由で更新されなくなったデータセットは、ここで消える。
-for (const f of await listDir(DATA_DIR)) {
-  if (!f.endsWith('.json') || f === 'index.json') continue;
-  const d = await readJSON(join(DATA_DIR, f), null);
-  if (!d?.generatedAt) continue;
-  const ageDays = (now.getTime() - Date.parse(d.generatedAt)) / 864e5;
-  if (ageDays > RETENTION.dataMaxAgeDays) {
-    await removeFile(join(DATA_DIR, f));
-    log.warn(`removed ${f}: ${Math.floor(ageDays)} days old (ORDER §8 limit is ${RETENTION.dataMaxAgeDays})`);
-  }
-}
+// ORDER §8 の保持期間（スナップショット31日／取得データ30日／前回順位／判定キャッシュ）。
+// 中身は scripts/lib/retention.mjs にあり、APIキー無しの scripts/retention.mjs からも同じものを呼ぶ。
+await runRetention({ now, shortsCache, saveShorts: false });
 
 // index.json は public/data の実物から作る（部分実行でも整合する）
 const datasets = {};

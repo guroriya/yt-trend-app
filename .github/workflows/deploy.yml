@@ -42,7 +42,6 @@ on:
       - 'public/**'
       - '.github/workflows/deploy.yml'
   workflow_dispatch:
-  workflow_call:
 
 permissions: {}
 
@@ -72,16 +71,42 @@ jobs:
 
       # ビルド工程は無い（ORDER §3）。public/ をそのまま成果物にする。
       # public/ の外（scripts/ state/ docs/ など）は一切含めない。
-      # public/data は git に入れない（ORDER §8: 取得データを履歴に残さない）。
-      # このワークフローは「コミット済みの静的資産＋サンプルデータ」を公開する用途なので、
-      # ここで必ずサンプルを生成する。実データの公開は collect.yml の役目。
+      # public/data は git に入れない（ORDER §8: 取得データを履歴に残さない）ので、
+      # ここで用意しないと空のまま公開される。ただし **サンプルで実データを踏み潰さない**:
+      #   1. collect.yml が保存したキャッシュから、いま公開中の集計結果を復元する
+      #   2. それでも空だったとき（初回・ゲートA 未完了）だけサンプルを作る
+      # これをしないと、UI の小さな修正を push するたびに実データがサンプルに戻る。
+      - name: Node 20 を用意
+        uses: actions/setup-node@v4
+        with:
+          node-version: '20'
+
+      - name: 公開中の public/data を復元
+        uses: actions/cache/restore@v4
+        with:
+          path: public/data
+          key: ytta-data-v1-restore-only
+          restore-keys: |
+            ytta-data-v1-
+
       - name: Python を用意（tools/mock.py 用）
         uses: actions/setup-python@v5
         with:
           python-version: '3.11'
 
-      - name: サンプルデータを生成
-        run: python tools/mock.py
+      - name: データが無ければサンプルを生成
+        run: |
+          set -eo pipefail
+          if [ -f public/data/index.json ]; then
+            echo "公開中のデータを復元しました（$(ls public/data | wc -l) ファイル）。サンプルは作りません。"
+          else
+            echo '::notice title=サンプルデータを生成します::キャッシュに公開中のデータがありませんでした。'
+            python tools/mock.py
+          fi
+
+      # 保持期間は公開経路がどれであっても守る（ORDER §8）。
+      - name: 保持期間の掃除（ORDER §8）
+        run: node scripts/retention.mjs
 
       # Service Worker のキャッシュ名を公開のたびに変える。
       # ビルド工程が無い（ORDER §3）ので、成果物を作る直前にコミット SHA を差し込む。

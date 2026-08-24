@@ -66,7 +66,7 @@ Node 20 以上と GitHub CLI の導入手順は [`NEEDS_HUMAN.md`](NEEDS_HUMAN.m
 
 ```bash
 npm install          # devDependency は @playwright/test のみ
-npx playwright install --with-deps chromium   # 初回のみ（E2E 用ブラウザ）
+npx playwright install chromium   # 初回のみ（E2E 用ブラウザ。--with-deps は Linux CI 用なので Windows では不要）
 
 npm run serve        # public/ を http://localhost:4173 で配信
 npm run mock         # モックデータ再生成（= python tools/mock.py）
@@ -96,7 +96,7 @@ npm run validate                      # public/data/*.json を docs/SCHEMA.md �
 | [`public/`](public/) | 配信されるもの全部。`index.html` / `app.css` / `app.js` の**3枚に UI を集約**、`js/config.js`（**設定はこの1ファイルだけ**）、`i18n/{en,ja}.json`（全文言）、`data/*.json`（ランキング本体。**git に入れない生成物** — `python tools/mock.py` か `npm run collect` で作る）、`icons/`、`manifest.webmanifest`、`sw.js`、`privacy.html` |
 | `scripts/` | 収集・検証・配信の Node 20 スクリプト。`collect.mjs` / `validate.mjs` / `serve.mjs` と `lib/`（`plan.mjs` = 予算プランナ等） |
 | `tests/` | Playwright の E2E 仕様。CI で実行する（ローカル実行はゲート0 待ち） |
-| [`tools/`](tools/) | Node 非依存のユーティリティ。`mock.py`（モックデータ生成）／`icons.py`（アイコン生成）／`audit.js`（デザイン憲章チェッカ：初見4件以上・タップ44px・WCAG AA・横はみ出し・カード高さ） |
+| [`tools/`](tools/) | Node 非依存のユーティリティ。`mock.py`（モックデータ生成）／`icons.py`（アイコン生成）／`audit.js`（デザイン憲章チェッカ：初見4件以上・タップ44px・WCAG AA・横はみ出し・カード高さ）／`devserve.py`（`.mjs` を正しい MIME・CORS で配る開発用サーバー。`scripts/*.mjs` をブラウザで検証するのに使う） |
 | `state/` | 収集スクリプトの内部状態（消費カウンタ・ショート判定キャッシュ・前回結果・日次スナップショット）。**コミットしない。** CI では `actions/cache` で実行間を持ち越す |
 | ルート | `CLAUDE.md`（作業ルール）／`HANDOFF.md`（引き継ぎ）／`DECISIONS.md`（判断ログ）／`BACKLOG.md`（積み残し）／`NEEDS_HUMAN.md`（人間ゲート） |
 
@@ -147,7 +147,7 @@ URL は**ハッシュルーティング**です。例:
 | `map` | 日次 | 1 | 26 |
 | | | **合計** | **7,125 / 10,000（71.2%）** |
 
-残り 2,875 units はリトライ・手動実行・ショート判定の再確認の余裕です。
+残り 2,875 units はリトライ・手動実行・`videos.list` の取り直しのための余裕です（ショート判定の HTTP 確認は 0 units なのでここには入りません）。
 
 ### 5-4. 既定は6時間ごと、割当を増やせば自動で毎時に近づく
 
@@ -174,7 +174,7 @@ ORDER §4 の理想は「24h ランキングは毎時更新」ですが、毎時
 
 - 実行前に日次消費見込みを算出し、`dailyUnits × 0.8`（既定 8,000）を超える構成なら
   **priority の大きいジョブから間隔を倍にして**収まるまで自動で落とす。
-- 落としたことは `public/data/index.json` の `quota.degraded = true` に出て、UI のフッタにも表示される。
+- 落としたことは `public/data/index.json` の `quota.degraded = true` に出て、UI のステータスバー（`#statusbar`）にも表示される。
 - 当日の実消費が `dailyUnits × 0.95` に達したら、その日は残ジョブを実行しない（ハード停止）。
 - 消費カウンタは **PT 0:00（`America/Los_Angeles`）でリセット**する。
 - 目安として、**既定割当のままなら 2カ国が上限**。3カ国以上は増枠申請とセットで行うこと（[`docs/BUDGET.md`](docs/BUDGET.md) §4）。
@@ -183,15 +183,15 @@ ORDER §4 の理想は「24h ランキングは毎時更新」ですが、毎時
 
 ## 6. 現状（ORDER §6 のフェーズ）
 
-> **いま同梱されているデータは実データではありません。**
-> `public/data/*.json` は [`tools/mock.py`](tools/mock.py) が生成した**モック（サンプル）データ**で、
+> **ローカルや CI で生成されるデータは、いまはまだ実データではありません。**
+> `public/data/*.json` は git に入っておらず、[`tools/mock.py`](tools/mock.py) が生成する**モック（サンプル）データ**で、
 > `index.json` の `source` は `"mock"` です。実 API データは（ORDER §8 の保存30日制約のため）
 > **git にコミットされません**。CI が毎回生成し、成果物として Pages にデプロイします。
 
 | | フェーズ | 内容 | 状態 |
 |---|---|---|---|
-| ✅ | **P0 足場** | repo・`docs/ORDER.md`・`CLAUDE.md`・`design-reviewer` 配置、モック JSON で UI 骨格 | **完了**。モックデータでの表示・タブ切替はローカル（`python -m http.server`）で確認済み。ただし **Playwright スモークは未実行**（ローカルに Node が無いため CI に寄せた → [`BACKLOG.md`](BACKLOG.md)） |
-| 🟨 | **P1 収集** | 実 API で 全期間 × 2カ国 × 2部門 の JSON 生成 | **コードは完成、実行はゲートA 待ち**（`YT_API_KEY` 未発行）。予算プランナ（`scripts/lib/plan.mjs`）とスキーマ検証（`scripts/lib/schema.mjs`）は純粋関数なのでブラウザで実行して検証済み（本表 §5 の数値と一致／モック43ファイルが検証通過） |
+| 🟨 | **P0 足場** | repo・`docs/ORDER.md`・`CLAUDE.md`・`design-reviewer` 配置、モック JSON で UI 骨格 | **実装完了・検収未了**（ORDER §6 の「Playwright スモーク通過」が未達）。モックデータでの表示・タブ切替はローカル（`python -m http.server`）で実測確認済み。ただし **Playwright スモークは未実行**（ローカルに Node が無いため CI に寄せた → [`BACKLOG.md`](BACKLOG.md)） |
+| 🟨 | **P1 収集** | 実 API で 全期間 × 2カ国 × 2部門 の JSON 生成 | **コードは完成、実行はゲートA 待ち**（`YT_API_KEY` 未発行）。予算プランナ（`scripts/lib/plan.mjs`）とスキーマ検証（`scripts/lib/schema.mjs`）は純粋関数なのでブラウザで実行して検証済み（本表 §5 の数値と一致／モックデータ 44 ファイル（ランキング40＋index/map/tags-JP/tags-US）が検証通過） |
 | ⬜ | **P2 自動化** | GitHub Actions 定時実行＋Pages 公開 | **ゲートE 待ち**（リモートリポジトリ未作成・Pages 未有効化）。ゲート0（`gh` CLI）も未了のため `gh run watch` による検収は目視確認に代替予定 |
 | 🟨 | **P3 v1完成** | ORDER §2 の 1〜10 全部＋design-reviewer 合格 → v1 公開 | **実装は完了**（期間・部門・カテゴリ・国の4軸、スワイプザッピング、順位変動、8件ごと広告枠、転送URL、i18n、PWA）。デザイン憲章の機械チェックは 360×800 / 412×915 × ライト・ダーク × 全タブで指摘ゼロ。**残るのは Playwright E2E の実走（ゲート0）と Pages 公開（ゲートE）** |
 | 🟨 | **P4 v2** | ORDER §2 の 11〜14（My ランキング／タグ／世界地図／伸びランキング） | **実装は完了**。学習の「見える・消せる・いじれる」、ワードランキング、世界地図、伸びランキングの自動有効化までブラウザで確認済み（`python tools/mock.py --growth` で伸びランキングも試せる）。E2E の実走は P3 と同じくゲート0 待ち |
@@ -212,6 +212,7 @@ ORDER §4 の理想は「24h ランキングは毎時更新」ですが、毎時
 | **0** | Node.js LTS ＋ GitHub CLI の導入（`winget`）と `gh auth login` | 最優先。ローカル検証と自動化の前提 |
 | **A** | Google Cloud で YouTube Data API v3 のキー発行 → `YT_API_KEY` を GitHub Secrets に登録 | P1 |
 | **E** | GitHub リポジトリ作成と Pages の有効化 | P2 |
+| **F** | API 割当の増枠申請（任意・急がない） | 24時間ランキングを毎時更新にしたくなったら（§5-4） |
 | **B** | Cloudflare アカウント＋wrangler 認可 | P5 |
 | **C** | Google Play Console 登録（$25）／AdMob・AdSense 申請 | P6 |
 | **D** | 見た目のスクショ指摘（随時・任意）。デザイン憲章より優先して反映 | いつでも |
