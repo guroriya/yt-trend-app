@@ -1,0 +1,261 @@
+# ============================================================================
+# collect.yml — 定期収集 → スキーマ検証 → GitHub Pages 公開
+#
+# 何をするか:
+#   1. 毎時 cron で起動する（ORDER §4「24h＝毎時」）。実際にどのジョブを走らせるかは
+#      収集スクリプト側の planner が API 割当から判断する（docs/BUDGET.md §4）。
+#      ワークフローを毎時起動しても、割当を超える構成なら planner が自動で間引く。
+#   2. state/（_budget.json・_shorts_cache.json・prev/・snapshots/）を actions/cache で
+#      前回実行から引き継ぐ。**git には絶対にコミットしない**（ORDER §8）。
+#   3. YT_API_KEY があれば収集、無ければ収集だけスキップして既存のモックを公開する。
+#      → 人間ゲートA（ORDER §7）が未完了でもワークフローは緑のまま進む。
+#   4. public/ を Pages 成果物としてアップロードし、そのまま公開する。
+#
+# 満たす ORDER の条項:
+#   §3 収集（Actions cron → Node 20 → YouTube Data API v3 → public/data/*.json → デプロイ）
+#   §4 割当予算とセーフガード（毎時起動＋planner による自動間引き）
+#   §6 P2「Actions定時実行＋Pages公開」
+#   §7 ゲートA 未完了でも止まらない（§1「止まらない」）
+#   §8 取得データを git に残さない／スナップショットは 31 日で削除
+#   §1-7 秘密情報はログに出さない
+# ============================================================================
+
+name: collect
+
+on:
+  # 毎時。:00 は GitHub 全体が混むので少しずらす（cron は UTC）。
+  schedule:
+    - cron: '17 * * * *'
+  workflow_dispatch:
+    inputs:
+      jobs:
+        description: '実行するジョブをカンマ区切りで指定（例: top24h,map）。空なら planner に任せる'
+        required: false
+        type: string
+        default: ''
+      force:
+        description: 'planner の間隔判定を無視して強制実行する（--force）'
+        required: false
+        type: boolean
+        default: false
+      dry_run:
+        description: 'API を叩かず消費見込みだけ出す（--dry-run）'
+        required: false
+        type: boolean
+        default: false
+
+# 毎時実行どうしが重なると、割当カウンタ（_budget.json）と state/ の
+# 読み書きが競合して二重消費になる。cancel-in-progress: false にするのは、
+# 実行中のジョブを途中で殺すと「API は消費したのにカウンタを保存できない」
+# という最悪の状態になるため（消費済みの割当は取り返せない）。
+concurrency:
+  group: collect
+  cancel-in-progress: false
+
+# 既定は無権限。必要な権限は各ジョブで最小限だけ与える。
+permissions: {}
+
+defaults:
+  run:
+    shell: bash
+
+jobs:
+  collect:
+    name: 収集と検証
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    permissions:
+      contents: read # 読むだけ。push できないトークンにして ORDER §8 を機械的に担保する
+    steps:
+      # persist-credentials: false → .git/config に認証情報を残さない。
+      # contents: read と合わせて「収集結果を誤ってコミット／push する経路」を物理的に塞ぐ。
+      - name: チェックアウト
+        uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+
+      - name: Node 20 を用意
+        uses: actions/setup-node@v4
+        with:
+          node-version: '20'
+          # cache: npm は package-lock.json が無いと失敗するのでここでは使わない。
+          # 収集スクリプトは依存ゼロ（Node 20 の fetch のみ）で動く前提。
+
+      # cache の path は「1つも存在しないと保存時にエラー」になるため、
+      # state/ は必ず先に作っておく。
+      - name: state/ ディレクトリを用意
+        run: mkdir -p state
+
+      # --- actions/cache の不変性について（重要） -------------------------------
+      # キャッシュのキーは一度書かれたら上書きできない（immutable）。
+      # そのため「固定キー」や「日付キー」を使うと、その日の最初の実行で書かれた
+      # 内容が翌日まで固定され、以降の実行の state/ が一切保存されない。
+      # → key は run 単位でユニークにして毎回必ず新規保存し、
+      #   restore-keys のプレフィックス一致で「直近に保存されたもの」を復元する。
+      #   （restore-keys は前方一致の中で最も新しいキャッシュを返す）
+      # なお ORDER §8 のスナップショット 31 日削除は収集スクリプト側の責務。
+      # キャッシュ自体も 7 日間参照されないと GitHub 側で自動削除される（＝保存は 30 日を超えない）。
+      # -------------------------------------------------------------------------
+      - name: state/ を復元
+        id: state-restore
+        uses: actions/cache/restore@v4
+        with:
+          # docs/SCHEMA.md は _budget.json / _shorts_cache.json を public/data/ 配下と
+          # 定義しており、収集スクリプトの内部仕様（state/ 配下）と食い違っている。
+          # どちらに書かれても引き継げるよう両方を対象にしておく（無い path は無視される）。
+          path: |
+            state
+            public/data/_budget.json
+            public/data/_shorts_cache.json
+          key: ytta-state-v1-${{ github.run_id }}-${{ github.run_attempt }}
+          restore-keys: |
+            ytta-state-v1-
+
+      - name: 復元直後の state/ を指紋化
+        id: state-before
+        run: |
+          set -eo pipefail
+          # 存在しない path があると find は 1 を返す（未収集の初回など）。
+          # pipefail と組み合わさると誤って失敗するので握りつぶす。
+          sha=$( { find state public/data/_budget.json public/data/_shorts_cache.json \
+                    -type f 2>/dev/null || true; } \
+                 | LC_ALL=C sort | xargs -r sha256sum | sha256sum | cut -d' ' -f1 )
+          echo "sha=$sha" >> "$GITHUB_OUTPUT"
+
+      - name: コミット改変が起きていないことの基準を記録
+        id: head-before
+        run: echo "sha=$(git rev-parse HEAD)" >> "$GITHUB_OUTPUT"
+
+      # secrets コンテキストは if: では参照できない（GitHub の仕様）。
+      # そのため env 経由で「有無だけ」を outputs に出す。値そのものは絶対に echo しない。
+      - name: APIキーの有無を判定（値はログに出さない）
+        id: guard
+        env:
+          YT_API_KEY: ${{ secrets.YT_API_KEY }}
+        run: |
+          set -eo pipefail
+          if [ -n "${YT_API_KEY}" ]; then
+            echo 'has_key=true' >> "$GITHUB_OUTPUT"
+            echo 'YT_API_KEY を検出しました（値は表示しません）。'
+          else
+            echo 'has_key=false' >> "$GITHUB_OUTPUT"
+            echo '::notice title=収集をスキップします::YT_API_KEY が未設定です（ORDER §7 ゲートA 未完了）。API 収集は行わず、リポジトリにあるモックデータをそのまま公開します。ワークフローは失敗扱いにしません。'
+            {
+              echo '### 収集はスキップされました'
+              echo ''
+              echo '`YT_API_KEY` シークレットが未設定です（ORDER §7 ゲートA）。'
+              echo '設定手順は `NEEDS_HUMAN.md` の「ゲートA」を参照してください。'
+              echo '既存の `public/data`（モック）をそのまま Pages に公開します。'
+            } >> "$GITHUB_STEP_SUMMARY"
+          fi
+
+      # workflow_dispatch の入力を run ブロックへ直接 ${{ }} 展開するとスクリプト差し込みの
+      # 危険がある。必ず env 経由で受け取り、書式も検証してから引数配列に組み立てる。
+      - name: 収集を実行
+        if: steps.guard.outputs.has_key == 'true'
+        env:
+          YT_API_KEY: ${{ secrets.YT_API_KEY }}
+          # schedule 起動のときは inputs が空になるので、明示的に既定値を与える。
+          JOBS_INPUT: ${{ inputs.jobs || '' }}
+          FORCE_INPUT: ${{ inputs.force || false }}
+          DRY_RUN_INPUT: ${{ inputs.dry_run || false }}
+        run: |
+          set -eo pipefail
+          # set -x は絶対に使わない（環境変数が展開されてログに出るため）
+          args=()
+          if [ -n "${JOBS_INPUT:-}" ]; then
+            if ! [[ "${JOBS_INPUT}" =~ ^[a-z0-9]+(,[a-z0-9]+)*$ ]]; then
+              echo "::error title=入力が不正です::jobs は英小文字・数字・カンマのみで指定してください。"
+              exit 1
+            fi
+            args+=("--jobs=${JOBS_INPUT}")
+          fi
+          if [ "${FORCE_INPUT:-false}" = 'true' ]; then args+=("--force"); fi
+          if [ "${DRY_RUN_INPUT:-false}" = 'true' ]; then args+=("--dry-run"); fi
+          echo "node scripts/collect.mjs ${args[*]}"
+          node scripts/collect.mjs ${args[@]+"${args[@]}"}
+
+      # 検証は収集の有無にかかわらず必ず走らせる。
+      # モックデータであっても docs/SCHEMA.md に適合していなければ公開しない。
+      - name: スキーマ検証
+        run: node scripts/validate.mjs
+
+      # 実行結果を state/ に持つ収集スクリプトのために、検証が落ちても
+      # 割当カウンタだけは必ず保存する。ここを取り違えると
+      # 「API は消費したのにカウンタが巻き戻る」＝二重消費になる。
+      - name: 実行後の state/ を指紋化
+        id: state-after
+        if: ${{ !cancelled() }}
+        run: |
+          set -eo pipefail
+          sha=$( { find state public/data/_budget.json public/data/_shorts_cache.json \
+                    -type f 2>/dev/null || true; } \
+                 | LC_ALL=C sort | xargs -r sha256sum | sha256sum | cut -d' ' -f1 )
+          echo "sha=$sha" >> "$GITHUB_OUTPUT"
+
+      # 変化が無いときに保存しないのは、毎時の実行で同じ内容のキャッシュが
+      # 積み上がり、リポジトリのキャッシュ上限（10GB / LRU 削除）を食い潰して
+      # 他ワークフローのキャッシュを追い出すのを避けるため。
+      - name: state/ を保存
+        if: ${{ !cancelled() && steps.state-after.outputs.sha != steps.state-before.outputs.sha }}
+        uses: actions/cache/save@v4
+        with:
+          path: |
+            state
+            public/data/_budget.json
+            public/data/_shorts_cache.json
+          key: ytta-state-v1-${{ github.run_id }}-${{ github.run_attempt }}
+
+      # ORDER §8:「取得した API データを git に残さない」ことの明示的な確認。
+      # 生成物は作業ツリーと Pages 成果物にだけ存在し、コミットは 1 つも増えない。
+      - name: 収集結果がコミットされていないことを確認（ORDER §8）
+        if: ${{ !cancelled() }}
+        env:
+          HEAD_BEFORE: ${{ steps.head-before.outputs.sha }}
+        run: |
+          set -eo pipefail
+          head_now="$(git rev-parse HEAD)"
+          if [ "${head_now}" != "${HEAD_BEFORE}" ]; then
+            echo "::error title=ORDER §8 違反::CI 内で新しいコミットが作られています。収集結果を git に入れてはいけません。"
+            exit 1
+          fi
+          echo '未コミットの生成物（git には入らず、Pages 成果物としてのみ公開されます）:'
+          git status --short -- public/data state | head -60 || true
+
+      - name: Pages 成果物としてアップロード
+        uses: actions/upload-pages-artifact@v3
+        with:
+          path: public
+
+  deploy:
+    name: Pages へ公開
+    needs: collect
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    permissions:
+      pages: write
+      id-token: write
+    environment:
+      name: github-pages
+      url: ${{ steps.deployment.outputs.page_url }}
+    # deploy.yml 側の公開ジョブと同じグループにして、
+    # 「push によるモック再公開」と「収集直後の公開」が同時に走らないようにする。
+    concurrency:
+      group: pages
+      cancel-in-progress: false
+    steps:
+      # --- なぜ deploy.yml を workflow_call せず、ここで公開まで済ませるか -------
+      # 呼び出し先のワークフローは自分でチェックアウトし直すため、公開されるのは
+      # 「git にコミットされている内容」＝モックデータになってしまう。
+      # 収集したばかりの public/data は（ORDER §8 によりコミットしないので）
+      # このランのワークスペースと成果物にしか存在しない。
+      # したがって同一ラン内で upload-pages-artifact → deploy-pages するのが
+      # いちばん単純で、かつ唯一正しく「今収集したデータ」を公開できる。
+      # deploy.yml は「コミット済みの public/ を公開する」別用途として独立させている。
+      # -------------------------------------------------------------------------
+      - name: Pages の設定を取得
+        uses: actions/configure-pages@v5
+
+      - name: デプロイ
+        id: deployment
+        uses: actions/deploy-pages@v4

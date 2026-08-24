@@ -11,7 +11,7 @@ tools/mock.py — モックデータ生成（ローカル UI 開発用 / ORDER �
 使い方:  python tools/mock.py
 """
 from __future__ import annotations
-import json, os, re, random, sys
+import hashlib, json, os, re, random, sys
 from datetime import datetime, timedelta, timezone
 
 ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
@@ -134,6 +134,31 @@ TAGS_JA = ["検証", "考察", "解説", "実況", "vlog", "料理", "旅", "作
 TAGS_EN = ["review", "howto", "vlog", "live", "reaction", "tutorial", "travel", "build", "cooking", "retro", "asmr", "explained"]
 
 
+ID_ALPHABET = "ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789-_"
+
+
+def stable_hash(*parts: str) -> int:
+    """Python の hash() はプロセスごとに変わる。決定論を保つため md5 を使う。"""
+    return int(hashlib.md5("|".join(parts).encode("utf-8")).hexdigest()[:12], 16)
+
+
+def synth_id(key: str, i: int) -> str:
+    """実在しないが形式は正しい 11 文字の videoId。サムネは404し、UI 側のフォールバックが出る。"""
+    h = hashlib.md5(f"{key}#{i}".encode("utf-8")).digest()
+    return "".join(ID_ALPHABET[b % len(ID_ALPHABET)] for b in h[:11])
+
+
+def video_ids_for(key: str, n: int) -> list[str]:
+    """リスト内で重複しない videoId を n 個返す。
+    先頭は実在の著名動画（サムネイルが実際に読める）、以降は合成 ID。"""
+    order = list(range(len(REAL_IDS)))
+    rnd = random.Random(stable_hash(key))
+    rnd.shuffle(order)
+    ids = [REAL_IDS[j] for j in order[:min(n, len(REAL_IDS))]]
+    ids += [synth_id(key, i) for i in range(len(ids), n)]
+    return ids
+
+
 def make_title(country: str, i: int, long_one: bool) -> str:
     if long_one:
         return LONG_JA if country == "JP" else LONG_EN
@@ -148,9 +173,16 @@ def make_list(country, section, period, category, size, days, metric="published"
     items = []
     base = rng.randint(4_000_000, 30_000_000) if period in ("all", "year") else rng.randint(200_000, 4_000_000)
     window_start = None if days is None else NOW - timedelta(days=days)
+    key = f"{country}-{section}-{period}-{category}-{metric}"
+    ids = video_ids_for(key, size)
+    prev_views = None
     for i in range(size):
-        vid = REAL_IDS[(i * 3 + hash(country + section + period + category)) % len(REAL_IDS)]
+        vid = ids[i]
         views = int(base * (0.985 ** i) * rng.uniform(0.88, 1.0))
+        # 再生数は必ず降順（スキーマ検証で並び順を見ているため）
+        if prev_views is not None and views >= prev_views:
+            views = max(1, prev_views - rng.randint(1, 5000))
+        prev_views = views
         if days is None:
             published = NOW - timedelta(days=rng.randint(400, 4000))
         else:

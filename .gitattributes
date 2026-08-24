@@ -1,0 +1,44 @@
+# .gitattributes — 改行コードの正規化（Windows での CRLF 警告対策）
+#
+# このリポジトリは Windows で編集し、Linux（GitHub Actions / GitHub Pages）で実行する。
+# リポジトリ内（＝コミットされる中身）は常に LF に統一し、
+# チェックアウト時も LF のまま置く。これで `warning: LF will be replaced by CRLF` が出なくなる。
+#
+# 変更後の既存ファイルの取り込み直しは main セッション側で行うこと:
+#   git add --renormalize . && git commit -m "chore: normalize line endings to LF"
+
+# ---- 既定: テキストと判定したものはすべて LF ----
+* text=auto eol=lf
+
+# ---- 明示的にテキスト（拡張子で迷わせない）----
+*.md        text eol=lf
+*.html      text eol=lf
+*.css       text eol=lf
+*.js        text eol=lf
+*.mjs       text eol=lf
+*.cjs       text eol=lf
+*.json      text eol=lf
+*.jsonc     text eol=lf
+*.webmanifest text eol=lf
+*.svg       text eol=lf
+*.py        text eol=lf
+*.yml       text eol=lf
+*.yaml      text eol=lf
+*.txt       text eol=lf
+.gitignore      text eol=lf
+.gitattributes  text eol=lf
+
+# ---- バイナリ（diff も改行変換もしない）----
+*.png       binary
+*.gz        binary
+*.jpg       binary
+*.jpeg      binary
+*.webp      binary
+*.ico       binary
+*.woff      binary
+*.woff2     binary
+*.zip       binary
+*.apk       binary
+
+# ---- GitHub の言語統計から除外（生成物・モックデータ）----
+public/data/**  linguist-generated=true

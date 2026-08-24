@@ -1,0 +1,20 @@
+{
+  "name": "yt-trend-app",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "description": "TrendZap — YouTube trending rankings you can zap between (everyone's ranking and your own).",
+  "engines": { "node": ">=20" },
+  "scripts": {
+    "collect": "node scripts/collect.mjs",
+    "validate": "node scripts/validate.mjs",
+    "plan": "node scripts/collect.mjs --dry-run",
+    "mock": "python tools/mock.py",
+    "icons": "python tools/icons.py",
+    "serve": "node scripts/serve.mjs",
+    "test:e2e": "playwright test"
+  },
+  "devDependencies": {
+    "@playwright/test": "^1.48.0"
+  }
+}

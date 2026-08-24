@@ -1,0 +1,99 @@
+# ============================================================================
+# deploy.yml — コミット済みの public/ を GitHub Pages に公開する
+#
+# 何をするか:
+#   main / master への push（public/ 配下が変わったとき）と、手動実行、
+#   他ワークフローからの呼び出し（workflow_call）で、
+#   リポジトリにコミットされている public/ をそのまま Pages に公開する。
+#
+# collect.yml との役割分担（重要）:
+#   - collect.yml … 「たった今 API から集めたデータ」を公開する。
+#     収集結果は ORDER §8 によりコミットしないので、同一ラン内で
+#     upload-pages-artifact → deploy-pages まで完結させている。
+#   - deploy.yml（このファイル）… 「コミット済みの内容」を公開する。
+#     UI（index.html / app.js / app.css）の修正や、ゲートA 前のモックデータの公開、
+#     Pages の設定変更後の再公開に使う。
+#
+#   ※ このワークフローは自前でチェックアウトするため、collect.yml から
+#     workflow_call しても「収集直後のデータ」ではなく「コミット済みのモック」が
+#     公開されてしまう。だから collect.yml はこれを呼ばない。
+#   ※ workflow_call で呼ぶ場合、呼び出し元の GITHUB_TOKEN に pages: write と
+#     id-token: write が無いと権限不足で失敗する（呼び出し先は呼び出し元より
+#     強い権限を持てないため）。
+#
+# 満たす ORDER の条項:
+#   §3 ホスティング＝GitHub Pages / ビルド工程なし（public/ をそのまま配信）
+#   §6 P2「Actions定時実行＋Pages公開」
+#   §8 公開するのは public/ だけ。API キーも state/ も成果物に含めない
+#
+# 前提: リポジトリの Settings → Pages → Source が「GitHub Actions」であること
+#       （NEEDS_HUMAN.md のゲートE）。未設定なら configure-pages が明示的に失敗する。
+# ============================================================================
+
+name: deploy
+
+on:
+  push:
+    # 既定ブランチ名の揺れに備えて両方を対象にする（ローカルの現行ブランチは master）。
+    branches: [main, master]
+    # UI や公開物に関係ない変更（docs/ の更新など）で毎回再公開しないための絞り込み。
+    # 収集直後のデータを push で上書きしてしまう機会も、これで最小になる。
+    paths:
+      - 'public/**'
+      - '.github/workflows/deploy.yml'
+  workflow_dispatch:
+  workflow_call:
+
+permissions: {}
+
+defaults:
+  run:
+    shell: bash
+
+# Pages の公開は同時に 1 本だけ。collect.yml の公開ジョブと同じグループ名にして、
+# 「収集直後の公開」と「push によるモック再公開」が競合しないようにする。
+# 進行中のデプロイは中断しない（中途半端な公開状態を避けるため）。
+concurrency:
+  group: pages
+  cancel-in-progress: false
+
+jobs:
+  build:
+    name: 公開物を準備
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    permissions:
+      contents: read
+    steps:
+      - name: チェックアウト
+        uses: actions/checkout@v4
+        with:
+          persist-credentials: false # push できる認証情報を作業ツリーに残さない
+
+      # ビルド工程は無い（ORDER §3）。public/ をそのまま成果物にする。
+      # public/ の外（scripts/ state/ docs/ など）は一切含めない。
+      - name: public/ を Pages 成果物にする
+        uses: actions/upload-pages-artifact@v3
+        with:
+          path: public
+
+  deploy:
+    name: Pages へ公開
+    needs: build
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    permissions:
+      pages: write # Pages へのデプロイ
+      id-token: write # deploy-pages の OIDC 認証に必須
+    environment:
+      name: github-pages
+      url: ${{ steps.deployment.outputs.page_url }}
+    steps:
+      # Pages が「GitHub Actions」ソースで有効化されているかをここで確認する。
+      # 未設定なら分かりやすく失敗する（NEEDS_HUMAN.md ゲートE へ誘導）。
+      - name: Pages の設定を取得
+        uses: actions/configure-pages@v5
+
+      - name: デプロイ
+        id: deployment
+        uses: actions/deploy-pages@v4

@@ -1,0 +1,130 @@
+# ============================================================================
+# e2e.yml — Playwright による E2E テスト（PR と main への push で実行）
+#
+# 何をするか:
+#   1. Node 20 と Python 3.11 を用意する（Python は tools/mock.py 用）。
+#   2. 依存をインストールする（package-lock.json があれば npm ci、無ければ npm install）。
+#   3. Chromium だけを --with-deps で導入する（他ブラウザは入れない＝CI 時間の節約）。
+#   4. python tools/mock.py でモックデータを作り直してから npm run test:e2e を回す。
+#      モックは seed 固定で決定論的なので、スクリーンショット比較や順位の検証が安定する。
+#   5. 失敗したときだけ playwright-report / test-results を成果物として残す。
+#
+# 満たす ORDER の条項:
+#   §3 テスト＝Playwright（E2E＋スクリーンショット）
+#   §6 P0「Playwrightスモーク通過」／P3「E2E全通過（全タブ網羅／転送URL検証／i18n切替／PWA）」
+#   §8 API キーは使わない。ここでは実データを一切取得しない（モックのみ）
+#
+# 前提（別担当が用意する契約）:
+#   - package.json に "test:e2e": "playwright test" と "serve": "node scripts/serve.mjs"
+#   - playwright.config で webServer に npm run serve（port 4173）を指定していること
+#     → このワークフローはサーバーを自前で起動しない
+# ============================================================================
+
+name: e2e
+
+on:
+  pull_request:
+    branches: [main, master]
+  push:
+    branches: [main, master]
+  workflow_dispatch:
+
+permissions: {}
+
+defaults:
+  run:
+    shell: bash
+
+# 同じブランチ／PR で新しい push があったら古い実行は打ち切る。
+# 収集と違って API 割当を消費しないので、途中で切っても損失は無い。
+concurrency:
+  group: e2e-${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  e2e:
+    name: Playwright E2E
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    permissions:
+      contents: read
+    env:
+      CI: 'true'
+    steps:
+      - name: チェックアウト
+        uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+
+      - name: Node 20 を用意
+        uses: actions/setup-node@v4
+        with:
+          node-version: '20'
+          # cache: npm は package-lock.json が無いと「lock file が見つからない」で
+          # ジョブごと落ちるため指定しない。lock がコミットされたら
+          # ここに cache: npm を足すとインストールが速くなる。
+
+      # ubuntu ランナーには python3 はあるが `python` がある保証は薄い。
+      # tools/mock.py と npm run mock（= python tools/mock.py）の両方が動くよう
+      # setup-python で `python` を PATH に置く。
+      - name: Python 3.11 を用意（tools/mock.py 用）
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+
+      - name: package.json の存在確認
+        run: |
+          set -eo pipefail
+          if [ ! -f package.json ]; then
+            echo '::error title=package.json がありません::E2E は package.json の "test:e2e" スクリプトに依存しています。収集スクリプト担当が package.json（"type":"module" / test:e2e / serve / mock / devDependencies に @playwright/test）を追加するまで、このワークフローは通りません。'
+            exit 1
+          fi
+
+      # package-lock.json がまだ無い段階でも動くようにする。
+      # lock がある場合は必ず npm ci（再現性のため）。
+      - name: 依存をインストール
+        run: |
+          set -eo pipefail
+          if [ -f package-lock.json ]; then
+            npm ci
+          else
+            echo '::warning title=package-lock.json がありません::再現性のため npm install ではなく npm ci を使いたいので、生成された package-lock.json をコミットしてください。今回は npm install で続行します。'
+            npm install --no-audit --no-fund
+          fi
+
+      # ブラウザは Chromium のみ。--with-deps で OS 側の共有ライブラリも入れる。
+      # （ブラウザのキャッシュは Playwright のバージョンに強く依存するので、
+      #   package-lock.json が入るまではキャッシュせず毎回入れ直す）
+      - name: Playwright（Chromium）を導入
+        run: npx playwright install --with-deps chromium
+
+      - name: モックデータを再生成
+        run: python tools/mock.py
+
+      # 決定論的な生成なので、コミット済みモックと差分が出る＝
+      # config.js か mock.py が変わったのに public/data を更新し忘れている、という意味。
+      # PR を落とすほどではないので警告に留める。
+      - name: コミット済みモックとの差分を確認（情報提供のみ）
+        run: |
+          set -eo pipefail
+          if ! git diff --quiet -- public/data; then
+            echo '::warning title=モックデータが最新ではありません::python tools/mock.py の出力がコミット済みの public/data と一致しません。`python tools/mock.py` を実行して結果をコミットしてください。'
+            git diff --stat -- public/data || true
+          fi
+
+      # Playwright 側の webServer 設定が npm run serve を起動する前提。
+      # ここで実データ（YouTube API）は一切使わない＝シークレット不要。
+      # そのため fork からの PR でも問題なく実行できる。
+      - name: E2E を実行
+        run: npm run test:e2e
+
+      - name: 失敗時のレポートを保存
+        if: failure()
+        uses: actions/upload-artifact@v4
+        with:
+          name: playwright-report-${{ github.run_id }}-${{ github.run_attempt }}
+          path: |
+            playwright-report/
+            test-results/
+          if-no-files-found: ignore
+          retention-days: 7
