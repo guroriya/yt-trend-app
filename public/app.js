@@ -1023,7 +1023,7 @@ function bindChrome() {
 function maybeSwipeHint() {
   if (LS.get('ytta.hintSeen', false)) return;
   const hint = el('div', 'hint');
-  hint.append(el('span', null, t('hint.swipe')));
+  hint.append(el('span', null, t('hint.swipe', { axis: t('settings.swipeAxis.' + state.swipeAxis) })));
   const b = el('button', null, t('hint.gotIt'));
   b.type = 'button';
   b.addEventListener('click', () => { LS.set('ytta.hintSeen', true); hint.remove(); });

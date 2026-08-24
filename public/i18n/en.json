@@ -152,6 +152,6 @@
   "a11y.list": "Ranking list",
   "a11y.swipeHint": "Swipe left or right to move between {axis} tabs",
 
-  "hint.swipe": "Swipe ← → to zap between periods",
+  "hint.swipe": "Swipe ← → to zap between {axis}",
   "hint.gotIt": "Got it"
 }

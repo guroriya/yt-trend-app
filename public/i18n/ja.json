@@ -152,6 +152,6 @@
   "a11y.list": "ランキング一覧",
   "a11y.swipeHint": "左右スワイプで{axis}のタブを移動できます",
 
-  "hint.swipe": "← → スワイプで期間を切り替え",
+  "hint.swipe": "← → スワイプで{axis}を切り替え",
   "hint.gotIt": "わかった"
 }
