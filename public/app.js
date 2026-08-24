@@ -782,10 +782,19 @@ async function renderCurrentView() {
     b.classList.toggle('is-active', on);
     b.setAttribute('aria-selected', String(on));
   });
-  if (state.mode === 'everyone') { syncAxes(); await renderEveryone(); }
-  else if (state.mode === 'my')  { await renderMy(); }
-  else if (state.mode === 'tags'){ await renderTags(); }
-  else if (state.mode === 'map') { await renderMap(); }
+  // どのビューで何が起きても、スケルトンのまま固まらないようにする。
+  // （タブ切替のハンドラは go() を await しないので、投げっぱなしだと誰も拾えない）
+  try {
+    if (state.mode === 'everyone') { syncAxes(); await renderEveryone(); }
+    else if (state.mode === 'my')  { await renderMy(); }
+    else if (state.mode === 'tags'){ await renderTags(); }
+    else if (state.mode === 'map') { await renderMap(); }
+  } catch (err) {
+    console.error('render failed', err);
+    const list = { my: '#my-list', tags: '#tag-list' }[state.mode];
+    if (list) { const n = $(list); n.replaceChildren(stateNode('error')); endLoading(n); }
+    else if (state.mode === 'map') $('#map-wrap').replaceChildren(stateNode('error').firstChild);
+  }
 }
 
 /* ---------------------------------------------------------------- routing */
