@@ -63,13 +63,11 @@
   "country.PL": "Poland",
 
   "card.views": "{n} views",
-  "card.viewsShort": "{n}",
   "card.new": "NEW",
   "card.up": "Up {n}",
   "card.down": "Down {n}",
   "card.same": "No change",
   "card.rank": "Rank {n}",
-  "card.openOnYouTube": "Open on YouTube",
   "card.hero": "#1 right now",
 
   "ad.label": "AD",
@@ -139,7 +137,6 @@
   "settings.swipeAxis.category": "Category",
   "settings.swipeAxis.country": "Country",
   "settings.reduceMotion": "Reduce motion",
-  "settings.about": "About",
   "settings.privacy": "Privacy policy",
   "settings.close": "Close",
   "settings.dataSource": "Data source",
@@ -147,7 +144,6 @@
   "settings.dataSource.live": "YouTube Data API v3",
 
   "a11y.openSettings": "Open settings",
-  "a11y.toggleTheme": "Toggle theme",
   "a11y.toggleLang": "Switch language",
   "a11y.periodTabs": "Time period",
   "a11y.sectionTabs": "Video type",

@@ -337,6 +337,8 @@ function adNode(slot) {
 
 function skeletonList(target, n = 8) {
   target.replaceChildren();
+  target.setAttribute('aria-busy', 'true');
+  target.setAttribute('aria-label', t('state.loading'));
   for (let i = 0; i < n; i++) {
     const li = el('li', 'card card-skel');
     const a = el('div', 'card-link');
@@ -451,6 +453,8 @@ function syncAxes() {
     b.classList.toggle('is-active', on); b.setAttribute('aria-selected', String(on));
     b.disabled = b.dataset.metric === 'growth' && !growthAvailable();
   });
+  $('#list-wrap').setAttribute('aria-label',
+    t('a11y.swipeHint', { axis: t('settings.swipeAxis.' + state.swipeAxis) }));
   const c = COUNTRIES.find(x => x.code === state.country) || COUNTRIES[0];
   $('#country-flag').textContent = c.flag;
   $('#country-code').textContent = c.code;
@@ -496,6 +500,8 @@ async function renderEveryone() {
 
 function paintRanking(list, items, { hero = false, why = false } = {}) {
   list.replaceChildren();
+  list.setAttribute('aria-busy', 'false');
+  list.setAttribute('aria-label', t('a11y.list'));
   if (!items || !items.length) { list.append(stateNode('empty')); return; }
   let sinceAd = 0, slot = 0;
   items.forEach((item, i) => {
@@ -507,10 +513,16 @@ function paintRanking(list, items, { hero = false, why = false } = {}) {
 }
 
 /* ---------------------------------------------------------------- my view */
+function syncLearningSwitch() {
+  const on = Learn.load().enabled;
+  $('#my-enabled').checked = on;
+  $('.switch-label').textContent = `${t('my.learning')}: ${t(on ? 'my.learning.on' : 'my.learning.off')}`;
+}
+
 async function renderMy() {
   const list = $('#my-list');
   skeletonList(list, 6);
-  $('#my-enabled').checked = Learn.load().enabled;
+  syncLearningSwitch();
   if (Learn.isEmpty()) {
     const li = el('li');
     const box = el('div', 'state');
@@ -581,6 +593,8 @@ function renderInspector() {
   };
   group('my.channels', 'channels', snap.channels);
   group('my.terms', 'terms', snap.terms);
+  group('my.categories', 'categories',
+    snap.categories.map(r => ({ ...r, name: catLabelOf(r.key) || r.key })));
 
   if (snap.muted.length) {
     const g = el('div', 'insp-group');
@@ -905,10 +919,17 @@ function openSettings() {
 
   $('#sheet-backdrop').hidden = false;
   $('#sheet-settings').hidden = false;
+  setBackgroundInert(true);
   $('#sheet-close').focus();
 }
 
+/** シートを開いている間、背後の UI をフォーカス・支援技術の両方から外す。 */
+function setBackgroundInert(on) {
+  $$('.appbar, .modes, .view, .foot').forEach(n => { n.inert = on; });
+}
+
 function closeSettings() {
+  setBackgroundInert(false);
   $('#sheet-backdrop').hidden = true;
   $('#sheet-settings').hidden = true;
   $('#btn-settings').focus();
@@ -930,7 +951,11 @@ function bindChrome() {
     const codes = COUNTRIES.map(c => c.code);
     go({ country: codes[(codes.indexOf(state.country) + 1) % codes.length] });
   });
-  $('#my-enabled').addEventListener('change', e => { Learn.setEnabled(e.target.checked); });
+  $('#my-enabled').addEventListener('change', e => {
+    Learn.setEnabled(e.target.checked);
+    syncLearningSwitch();
+    renderMy();
+  });
   $('#my-inspect').addEventListener('click', () => {
     const box = $('#my-inspector');
     box.hidden = !box.hidden;

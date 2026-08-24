@@ -63,13 +63,11 @@
   "country.PL": "ポーランド",
 
   "card.views": "{n}回",
-  "card.viewsShort": "{n}",
   "card.new": "NEW",
   "card.up": "{n}位アップ",
   "card.down": "{n}位ダウン",
   "card.same": "変動なし",
   "card.rank": "{n}位",
-  "card.openOnYouTube": "YouTube で開く",
   "card.hero": "いまの1位",
 
   "ad.label": "AD",
@@ -139,7 +137,6 @@
   "settings.swipeAxis.category": "カテゴリ",
   "settings.swipeAxis.country": "国",
   "settings.reduceMotion": "アニメーションを減らす",
-  "settings.about": "このアプリについて",
   "settings.privacy": "プライバシーポリシー",
   "settings.close": "閉じる",
   "settings.dataSource": "データ元",
@@ -147,7 +144,6 @@
   "settings.dataSource.live": "YouTube Data API v3",
 
   "a11y.openSettings": "設定を開く",
-  "a11y.toggleTheme": "テーマを切り替え",
   "a11y.toggleLang": "言語を切り替え",
   "a11y.periodTabs": "期間",
   "a11y.sectionTabs": "部門",
