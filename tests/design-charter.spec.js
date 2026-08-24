@@ -25,8 +25,13 @@ function expectNoCritical(findings, where) {
   expect(bad, `${where} で憲章違反:\n${formatFindings(bad)}`).toEqual([]);
 }
 
-function finding(findings, what) {
-  return findings.find(f => f.what === what);
+/**
+ * tools/audit.js は合格と不合格で `what` の文字列が変わる
+ * （例: 'tap targets' / 'tap target < 44px'）。前方一致で拾い、
+ * 見つからなければ「その検査が走らなかった」ことが分かるように undefined を返す。
+ */
+function finding(findings, prefix) {
+  return findings.find(f => f.what === prefix || f.what.startsWith(prefix.split(' ')[0]));
 }
 
 async function auditAt(page) {
@@ -47,6 +52,8 @@ test.describe('デザイン憲章', () => {
     expect(finding(findings, 'tap targets').level, '44px タップ目標').toBe('ok');
     expect(finding(findings, 'contrast').level, 'WCAG AA コントラスト').toBe('ok');
     expect(finding(findings, 'horizontal overflow').level, '横あふれなし').toBe('ok');
+    // hidden を立てた要素が本当に消えていること（UA の [hidden] は作者の display に負ける）
+    expect(finding(findings, 'hidden elements').level, 'hidden が効いている').toBe('ok');
     // 2行クランプが効いていればカード高さは揃う（整列＝秩序）
     expect(finding(findings, 'card height').level, 'カード高さの揃い').toBe('ok');
   });

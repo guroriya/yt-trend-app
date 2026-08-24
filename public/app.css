@@ -73,6 +73,10 @@
 
 /* ---------- base ---------- */
 * { box-sizing: border-box; }
+/* UA の [hidden]{display:none} は作者スタイルの display に負ける。
+   .axis-row や .chip は display:flex を持つので、JS が hidden を立てても消えなかった
+   （期間が 24h 以外のときのカテゴリチップ、伸びタブが未解禁のときの指標行）。 */
+[hidden] { display: none !important; }
 html, body { margin: 0; padding: 0; }
 html { -webkit-text-size-adjust: 100%; }
 body {
@@ -363,6 +367,10 @@ ol, ul { list-style: none; margin: 0; padding: 0; }
 .btn-ghost { background: var(--bg-elev); border-color: transparent; min-height: 38px; font-size: 13px; padding: 0 14px; }
 .btn-block { width: calc(100% - 32px); margin: 4px 16px 16px; }
 .btn-sm { min-height: 34px; font-size: 12px; padding: 0 11px; }
+/* 小さめのボタンも見た目はそのまま、当たり判定だけ 44px に広げる（憲章: タップ目標44px以上）。 */
+.btn-ghost, .btn-sm { position: relative; }
+.btn-ghost::before { content: ""; position: absolute; inset: -3px 0; }
+.btn-sm::before { content: ""; position: absolute; inset: -5px 0; }
 
 /* ---------- panes (my / tags / map) ---------- */
 .pane-head { padding: 12px 14px 8px; }

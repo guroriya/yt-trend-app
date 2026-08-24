@@ -92,7 +92,9 @@ export async function seedStorage(page, values) {
  * .thumb は width/aspect-ratio 固定なのでレイアウトは変わらない。
  */
 export async function blockThumbnails(page) {
-  await page.route('https://i.ytimg.com/**', route => route.abort());
+  // context 側に張る。Service Worker が投げる fetch は page.route を通らないため
+  // （sw.js は activate で clients.claim() するので、2回目以降の読込では SW 経由になる）。
+  await page.context().route('https://i.ytimg.com/**', route => route.abort());
 }
 
 /**
@@ -186,10 +188,14 @@ export async function swipeList(page, direction /* 'left' | 'right' */) {
   const from = direction === 'left' ? right : left;
   const to = direction === 'left' ? left : right;
 
+  // 縦にも少しずらす。始点と終点が同じカードの <a> に載ったままだと、
+  // mouseup で合成クリックが起きてカードのリンク（target=_blank）が開いてしまう。
+  // dx がしきい値（60px）を超え、かつ |dx| > |dy| * 1.6 を保つ範囲でずらす。
+  const y2 = y + 24;
   await page.mouse.move(from, y);
   await page.mouse.down();
   for (let i = 1; i <= 6; i++) {
-    await page.mouse.move(Math.round(from + ((to - from) * i) / 6), y);
+    await page.mouse.move(Math.round(from + ((to - from) * i) / 6), Math.round(y + ((y2 - y) * i) / 6));
   }
   await page.mouse.up();
 }

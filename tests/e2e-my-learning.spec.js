@@ -133,6 +133,9 @@ test.describe('端末内学習', () => {
     const range = first.locator('input[type="range"]');
     await expect(range).toHaveAttribute('max', '100');
 
+    // 表示ログの学習（IntersectionObserver）が走り続けていると、書いた直後に
+    // 重みが加算されて厳密比較が不安定になる。値を触る前に学習を止める。
+    await page.evaluate(() => window.__trendzap.Learn.setEnabled(false));
     await range.fill('80');
 
     await expect(first.locator('.insp-w')).toHaveText('80');

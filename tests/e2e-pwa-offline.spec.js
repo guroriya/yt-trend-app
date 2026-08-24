@@ -85,7 +85,8 @@ test.describe('PWA', () => {
       '一度も登録されない。document.readyState を見て即時登録にフォールバックすること。',
     ).toBe(true);
     expect(sw.active).toBe(true);
-    expect(sw.scope).toContain('/');
+    // scope は絶対 URL なので toContain('/') は常に真になる。パスで比べる。
+    expect(new URL(sw.scope).pathname).toBe('/');
   });
 });
 

@@ -40,7 +40,10 @@
       if (n.dataset.secondaryTarget === '1') return false;  // 同等の 44px 導線が別にある副次的アフォーダンス
       return cs.visibility !== 'hidden' && cs.display !== 'none' && r.top > -200;
     });
-  const owns = (hit, node) => !!hit && (hit === node || node.contains(hit) || hit.contains(node));
+  // hit.contains(node)（＝祖先が返ってきた）を合格にすると、実際には別要素を押している
+  // 場合まで通ってしまい判定が骨抜きになる。自分自身か自分の子孫だけを合格とする。
+  // ::before で広げた当たり判定は originating element を返すので hit === node になる。
+  const owns = (hit, node) => !!hit && (hit === node || node.contains(hit));
   const smallTargets = [];
   for (const n of interactive) {
     const r = n.getBoundingClientRect();
@@ -50,8 +53,22 @@
     // 画面外・横スクロール領域の外側・他要素に隠れているものは判定対象外（偽陽性を避ける）
     if (cx < 0 || cx > innerWidth || cy < 0 || cy > innerHeight) continue;
     if (!owns(document.elementFromPoint(cx, cy), n)) continue;
-    const top = document.elementFromPoint(cx, Math.max(1, r.top - (44 - r.height) / 2 + 2));
-    const bot = document.elementFromPoint(cx, Math.min(innerHeight - 1, r.bottom + (44 - r.height) / 2 - 2));
+    // スクロール領域の内側にある要素は、端では親にクリップされて別要素が返る。
+    // それは「タップ目標が小さい」ではなくクリップなので、判定対象から外す。
+    const clip = (() => {
+      let a = n.parentElement;
+      while (a && a !== document.body) {
+        const cs2 = getComputedStyle(a);
+        if (/auto|scroll|hidden/.test(cs2.overflowY + cs2.overflow)) return a.getBoundingClientRect();
+        a = a.parentElement;
+      }
+      return null;
+    })();
+    const topY = Math.max(1, r.top - (44 - r.height) / 2 + 2);
+    const botY = Math.min(innerHeight - 1, r.bottom + (44 - r.height) / 2 - 2);
+    if (clip && (topY < clip.top || botY > clip.bottom)) continue;
+    const top = document.elementFromPoint(cx, topY);
+    const bot = document.elementFromPoint(cx, botY);
     if (!owns(top, n) || !owns(bot, n)) {
       smallTargets.push(`${n.tagName.toLowerCase()}.${(n.className || '').toString().split(' ')[0]} h=${Math.round(r.height)} "${(n.textContent || '').trim().slice(0, 16)}"`);
     }
@@ -113,6 +130,15 @@
   }
   if (bad.length) push('Critical', 'contrast below WCAG AA', bad.slice(0, 12));
   else push('ok', 'contrast', 'all sampled text meets AA');
+
+  /* ---------- 3.5 hidden が効いているか ---------- */
+  // UA の [hidden]{display:none} は作者スタイルの display に負ける。
+  // JS で hidden を立てているのに見えたままだと、出してはいけないタブが出てしまう。
+  const stillVisible = [...document.querySelectorAll('[hidden]')]
+    .filter(n => { const r = n.getBoundingClientRect(); return r.width > 0 || r.height > 0; })
+    .map(n => `${n.tagName.toLowerCase()}#${n.id || ''}.${(n.className || '').toString().split(' ')[0]}`);
+  if (stillVisible.length) push('Critical', 'hidden element still rendered', stillVisible.slice(0, 8));
+  else push('ok', 'hidden elements', 'all [hidden] nodes are actually hidden');
 
   /* ---------- 4. 横あふれ ---------- */
   if (document.documentElement.scrollWidth > innerWidth + 1) {

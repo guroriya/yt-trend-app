@@ -154,6 +154,9 @@ test.describe('ランキングカード', () => {
   test('転送 URL: 動画は watch?v=、ショートは /shorts/、別タブ＋noopener', async ({ page }) => {
     for (const section of SECTIONS.map(s => s.id)) {
       await gotoApp(page, everyoneHash({ section }));
+      // 2周目はハッシュだけが変わる同一ドキュメント遷移なので、リストが空になる瞬間が無い。
+      // 「リストが非空」だけを待つと前の部門のまま検証してしまうため、状態で待つ。
+      await page.waitForFunction(s => window.__trendzap?.state.section === s, section);
       await waitForList(page);
 
       const links = await page.locator('#list .card[data-video-id] > a').evaluateAll(els =>
