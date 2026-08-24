@@ -1,0 +1,11 @@
+{
+  "version": "0.0.1",
+  "configurations": [
+    {
+      "name": "yt-trend-app",
+      "runtimeExecutable": "python",
+      "runtimeArgs": ["-m", "http.server", "4173", "--directory", "C:/Users/Owner/yt-trend-app/public"],
+      "port": 4173
+    }
+  ]
+}

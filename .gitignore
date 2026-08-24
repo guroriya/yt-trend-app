@@ -1,0 +1,11 @@
+node_modules/
+.playwright/
+test-results/
+playwright-report/
+*.log
+.DS_Store
+Thumbs.db
+.env
+.env.*
+public/data/_local/
+public/_dev-*

@@ -1,0 +1,7 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 1000 1000" role="img" aria-label="TrendZap">
+  <defs><linearGradient id="g" x1="0" y1="0" x2="0" y2="1">
+    <stop offset="0" stop-color="#ff4d2d"/><stop offset="1" stop-color="#ffc247"/>
+  </linearGradient></defs>
+  <rect width="1000" height="1000" rx="220" fill="url(#g)"/>
+  <path d="M560 150 330 545h140l-60 305 260-410H520z" fill="#fff"/>
+</svg>

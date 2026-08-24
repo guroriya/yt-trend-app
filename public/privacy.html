@@ -1,0 +1,154 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<title>Privacy Policy — TrendZap</title>
+<script>
+(function () {
+  try {
+    var p = localStorage.getItem('ytta.theme') || 'auto';
+    var dark = p === 'dark' || (p === 'auto' && window.matchMedia('(prefers-color-scheme: dark)').matches);
+    document.documentElement.setAttribute('data-theme', dark ? 'dark' : 'light');
+  } catch (e) { document.documentElement.setAttribute('data-theme', 'light'); }
+})();
+</script>
+<link rel="stylesheet" href="app.css">
+<style>
+  .doc { max-width: 640px; margin: 0 auto; padding: 16px 16px 48px; }
+  .doc h1 { font-size: 20px; letter-spacing: -.02em; margin: 8px 0 4px; }
+  .doc h2 { font-size: 15px; margin: 26px 0 6px; }
+  .doc p, .doc li { font-size: 13.5px; color: var(--text-2); line-height: 1.65; }
+  .doc li { margin-bottom: 4px; }
+  .doc ul { padding-left: 20px; list-style: disc; }
+  .doc .upd { font-size: 12px; color: var(--text-3); }
+  .doc hr { border: 0; border-top: 1px solid var(--line); margin: 32px 0; }
+  .doc a { color: var(--accent); }
+  .back { display: inline-flex; align-items: center; min-height: 44px; font-weight: 700; font-size: 14px; text-decoration: none; color: var(--accent); }
+</style>
+</head>
+<body>
+<div class="doc">
+  <a class="back" href="./">← TrendZap</a>
+
+  <h1>Privacy Policy</h1>
+  <p class="upd">Last updated: 2026-08-25</p>
+
+  <p>TrendZap ("the app") is an independent, third-party application. It is not affiliated with,
+  endorsed by, or sponsored by YouTube or Google LLC. The app shows public ranking data and links
+  out to YouTube; it does not play or embed videos.</p>
+
+  <h2>1. What the app stores</h2>
+  <ul>
+    <li><strong>On your device only.</strong> Your interface preferences (language, theme, country,
+    swipe axis) and — if you use the "You" tab — the interest model built from what you scroll past
+    and open. All of it lives in your browser's <code>localStorage</code>.</li>
+    <li><strong>Nothing is uploaded.</strong> The interest model is never transmitted anywhere. There is
+    no account, no login, and no server that receives it. You can view every entry, change its weight,
+    delete entries individually, or erase everything from the "You" tab.</li>
+  </ul>
+
+  <h2>2. What the app does not collect</h2>
+  <ul>
+    <li>No names, e-mail addresses, phone numbers, or other personal identifiers.</li>
+    <li>No advertising identifiers, no cross-site tracking, no analytics SDK.</li>
+    <li>No IP address logging by the app itself (see hosting below).</li>
+  </ul>
+
+  <h2>3. Data the app displays</h2>
+  <p>Rankings are produced by a scheduled job that queries the YouTube Data API v3 and publishes
+  static JSON files. The job runs on our infrastructure, not on your device, and stores only public
+  video metadata (title, channel, view count, publish time, duration, tags). In line with the
+  YouTube API Services Terms of Service, that stored data is refreshed or deleted within 30 days;
+  historical snapshots are automatically deleted after 31 days.</p>
+
+  <h2>4. Third parties</h2>
+  <ul>
+    <li><strong>Thumbnails</strong> are loaded directly from <code>i.ytimg.com</code>. Your browser's
+    request to that host is subject to Google's privacy practices.</li>
+    <li><strong>Opening a video</strong> sends you to youtube.com, where Google's
+    <a href="https://policies.google.com/privacy" target="_blank" rel="noopener noreferrer">Privacy Policy</a>
+    and the <a href="https://www.youtube.com/t/terms" target="_blank" rel="noopener noreferrer">YouTube Terms of Service</a> apply.</li>
+    <li><strong>Hosting.</strong> The site is served as static files by GitHub Pages, whose servers
+    record standard request logs. See GitHub's privacy statement for details.</li>
+    <li><strong>Advertising.</strong> The current release shows placeholder ad slots only and runs no
+    ad network. If an ad network is added in a future release, this policy will be updated before
+    it ships, and consent will be requested where the law requires it.</li>
+  </ul>
+
+  <h2>5. Children</h2>
+  <p>The app is not directed at children under 13 and does not knowingly collect data from them.</p>
+
+  <h2>6. Your choices</h2>
+  <ul>
+    <li>Turn learning off with the "Learning" switch in the "You" tab.</li>
+    <li>Erase everything with "Erase everything learned".</li>
+    <li>Clearing your browser's site data removes every trace the app keeps.</li>
+  </ul>
+
+  <h2>7. Contact</h2>
+  <p>Questions about this policy can be raised as an issue in the project's public repository.</p>
+
+  <hr>
+
+  <h1 lang="ja">プライバシーポリシー</h1>
+  <p class="upd" lang="ja">最終更新: 2026年8月25日</p>
+
+  <div lang="ja">
+    <p>TrendZap（以下「本アプリ」）は第三者が開発した非公式アプリです。YouTube および Google LLC
+    とは提携・承認・出資のいずれの関係もありません。本アプリは公開されているランキング情報を表示し、
+    YouTube へのリンクを提供するのみで、動画の再生・埋め込みは行いません。</p>
+
+    <h2>1. 保存する情報</h2>
+    <ul>
+      <li><strong>端末内のみ。</strong> 表示設定（言語・テーマ・国・スワイプ軸）と、「自分」タブを
+      使う場合の興味モデル（見た・開いたものから作られます）は、すべてブラウザの
+      <code>localStorage</code> に保存されます。</li>
+      <li><strong>外部への送信は一切ありません。</strong> 興味モデルはどこにも送信されません。
+      アカウントもログインも、受け取るサーバーも存在しません。「自分」タブから中身を一覧し、
+      重みを変え、個別に消し、すべて消去できます。</li>
+    </ul>
+
+    <h2>2. 収集しない情報</h2>
+    <ul>
+      <li>氏名・メールアドレス・電話番号などの個人識別情報</li>
+      <li>広告識別子、サイト横断のトラッキング、解析 SDK</li>
+      <li>本アプリ自身による IP アドレスの記録（ホスティングについては下記4を参照）</li>
+    </ul>
+
+    <h2>3. 表示するデータについて</h2>
+    <p>ランキングは定期実行のジョブが YouTube Data API v3 から取得し、静的な JSON として公開しています。
+    ジョブは端末上ではなく当方の環境で動作し、公開情報（タイトル・チャンネル名・再生数・投稿日時・
+    長さ・タグ）のみを保持します。YouTube API サービス利用規約に従い、保持したデータは30日以内に
+    更新または削除し、時系列スナップショットは31日で自動削除します。</p>
+
+    <h2>4. 第三者</h2>
+    <ul>
+      <li><strong>サムネイル</strong>は <code>i.ytimg.com</code> から直接読み込まれます。当該通信には
+      Google のプライバシー慣行が適用されます。</li>
+      <li><strong>動画を開く</strong>と youtube.com に遷移し、Google のプライバシーポリシーおよび
+      YouTube 利用規約が適用されます。</li>
+      <li><strong>ホスティング</strong>は GitHub Pages です。同社のサーバーには通常のアクセスログが
+      記録されます。</li>
+      <li><strong>広告</strong>は現行版ではプレースホルダ枠のみで、広告ネットワークは動作していません。
+      将来的に導入する場合は、導入前に本ポリシーを更新し、法令が求める場合は同意取得を行います。</li>
+    </ul>
+
+    <h2>5. 子どもについて</h2>
+    <p>本アプリは13歳未満を対象としておらず、意図的に情報を収集することはありません。</p>
+
+    <h2>6. 利用者の選択肢</h2>
+    <ul>
+      <li>「自分」タブの「学習」スイッチで学習を停止できます。</li>
+      <li>「学習をすべて消す」で全消去できます。</li>
+      <li>ブラウザのサイトデータを削除すれば、本アプリが保持する情報は残らず消えます。</li>
+    </ul>
+
+    <h2>7. お問い合わせ</h2>
+    <p>本ポリシーに関するお問い合わせは、公開リポジトリの Issue にてお願いします。</p>
+  </div>
+
+  <p style="margin-top:32px"><a class="back" href="./">← TrendZap</a></p>
+</div>
+</body>
+</html>

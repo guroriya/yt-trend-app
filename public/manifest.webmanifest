@@ -1,0 +1,26 @@
+{
+  "name": "TrendZap — YouTube trending rankings",
+  "short_name": "TrendZap",
+  "description": "Zap between everyone's YouTube ranking and your own. 24h / week / month / year / all time, videos and shorts, by country.",
+  "id": "./",
+  "start_url": "./",
+  "scope": "./",
+  "display": "standalone",
+  "orientation": "portrait",
+  "background_color": "#ffffff",
+  "theme_color": "#ff4d2d",
+  "lang": "en",
+  "dir": "ltr",
+  "categories": ["entertainment", "news", "social"],
+  "icons": [
+    { "src": "icons/icon.svg", "sizes": "any", "type": "image/svg+xml", "purpose": "any" },
+    { "src": "icons/icon-192.png", "sizes": "192x192", "type": "image/png", "purpose": "any" },
+    { "src": "icons/icon-512.png", "sizes": "512x512", "type": "image/png", "purpose": "any" },
+    { "src": "icons/icon-maskable-512.png", "sizes": "512x512", "type": "image/png", "purpose": "maskable" }
+  ],
+  "shortcuts": [
+    { "name": "24h", "url": "./#/everyone/JP/video/24h/all/published" },
+    { "name": "Shorts", "url": "./#/everyone/JP/shorts/24h/all/published" },
+    { "name": "You", "url": "./#/my" }
+  ]
+}
