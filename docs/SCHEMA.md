@@ -140,12 +140,13 @@ URL 規約が安定しているため（DECISIONS.md 2026-08-25）。
   "generatedAt": "…",
   "period": "24h",
   "items": [
-    { "term": "…", "score": 87.2, "count": 12, "delta": 5, "videoIds": ["…", "…"] }
+    { "rank": 1, "term": "…", "score": 87.2, "count": 12, "delta": 5, "videoIds": ["…", "…"] }
   ]
 }
 ```
 
-`score` は「その語を含む動画の再生数合計を対数圧縮した値」。`delta` は前回集計の順位差。
+`rank` は 1 始まりの連番（フロントがそのまま表示する）。
+`score` は「その語を含む動画の再生数合計を対数圧縮した値」。`delta` は前回集計の順位差（前回に無ければ null）。
 言語別ストップワードは `scripts/lib/tags.mjs` の `STOPWORDS`。
 
 ---

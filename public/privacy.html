@@ -7,7 +7,9 @@
 <script>
 (function () {
   try {
-    var p = localStorage.getItem('ytta.theme') || 'auto';
+    var raw = localStorage.getItem('ytta.theme');
+    var p = 'auto';
+    try { p = raw == null ? 'auto' : JSON.parse(raw); } catch (e) { p = raw || 'auto'; }
     var dark = p === 'dark' || (p === 'auto' && window.matchMedia('(prefers-color-scheme: dark)').matches);
     document.documentElement.setAttribute('data-theme', dark ? 'dark' : 'light');
   } catch (e) { document.documentElement.setAttribute('data-theme', 'light'); }

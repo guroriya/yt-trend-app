@@ -5,6 +5,9 @@
      i.ytimg.com のサムネ … cache-first（上限件数つき LRU 風の間引き）
    キャッシュ名の版を上げるだけで安全に入れ替わる。 */
 
+// 公開のたびに CI がコミット SHA へ書き換える（.github/workflows の「Service Worker の版を
+// コミット SHA で刻む」ステップ）。ここが固定のままだと、本番は cache-first なので
+// 一度キャッシュされたシェルが二度と更新されない。手で編集するときも必ず値を変えること。
 const VERSION = 'v1';
 /* ローカル開発（localhost）ではシェル資産を network-first にする。
    PWA の挙動（install / offline フォールバック）はそのまま検証できるが、
@@ -30,10 +33,17 @@ const SHELL_ASSETS = [
   'icons/icon-512.png',
 ];
 
+/** これが1つでも取れなければ install を失敗させる（壊れたシェルで active にしない）。 */
+const CORE_ASSETS = ['./', 'index.html', 'app.css', 'app.js', 'js/config.js'];
+
 self.addEventListener('install', event => {
   event.waitUntil((async () => {
     const cache = await caches.open(SHELL);
-    await Promise.allSettled(SHELL_ASSETS.map(u => cache.add(u)));
+    // 必須ぶんは addAll。失敗したら例外が上がって install が失敗し、次の機会に再試行される。
+    await cache.addAll(CORE_ASSETS);
+    // 残り（辞書・アイコン等）は欠けてもアプリは動くので、失敗を握って先に進む。
+    const rest = SHELL_ASSETS.filter(u => !CORE_ASSETS.includes(u));
+    await Promise.allSettled(rest.map(u => cache.add(u)));
     await self.skipWaiting();
   })());
 });

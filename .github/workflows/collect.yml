@@ -234,6 +234,16 @@ jobs:
           echo '未コミットの生成物（git には入らず、Pages 成果物としてのみ公開されます）:'
           git status --short -- public/data state | head -60 || true
 
+      # Service Worker のキャッシュ名を公開のたびに変える。
+      # ビルド工程が無い（ORDER §3）ので、成果物を作る直前にコミット SHA を差し込む。
+      # これをしないと VERSION が 'v1' のまま固定され、一度キャッシュされたシェルが
+      # 二度と更新されない（本番は cache-first のため）。
+      - name: Service Worker の版をコミット SHA で刻む
+        run: |
+          set -eo pipefail
+          sed -i "s/^const VERSION = '.*';/const VERSION = '${GITHUB_SHA:0:12}';/" public/sw.js
+          grep -n "^const VERSION" public/sw.js
+
       - name: Pages 成果物としてアップロード
         uses: actions/upload-pages-artifact@v3
         with:

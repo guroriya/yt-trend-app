@@ -28,14 +28,15 @@ const LS = {
 /* ------------------------------------------------------------------ state */
 const state = {
   mode: 'everyone',
-  country: LS.get('ytta.country', COUNTRIES[0].code),
+  // localStorage は古い版や手編集で壊れていることがある。ハッシュや言語と同じように検証する。
+  country: (c => (COUNTRIES.some(x => x.code === c) ? c : COUNTRIES[0].code))(LS.get('ytta.country', COUNTRIES[0].code)),
   section: 'video',
   period: '24h',
   category: 'all',
   metric: 'published',
   lang: DEFAULT_LANG,
   themePref: LS.get('ytta.theme', 'auto'),
-  swipeAxis: LS.get('ytta.swipeAxis', 'period'),
+  swipeAxis: (a => (['period', 'section', 'category', 'country'].includes(a) ? a : 'period'))(LS.get('ytta.swipeAxis', 'period')),
   reduceMotion: LS.get('ytta.reduceMotion', false),
   index: null,
   offline: !navigator.onLine,
@@ -127,14 +128,22 @@ function setTheme(pref) {
 const memCache = new Map();
 
 async function getJSON(path, { soft = false } = {}) {
-  if (memCache.has(path)) return memCache.get(path);
-  const p = fetch(path, { cache: 'no-cache' }).then(r => {
-    if (!r.ok) throw new Error(`${path} ${r.status}`);
-    return r.json();
-  });
-  memCache.set(path, p);
+  // キャッシュ命中のときも必ず同じ try/catch を通す。先に return してしまうと
+  // 2人目の呼び出し側では soft:true が効かず、未処理の rejection にもなる。
+  let p = memCache.get(path);
+  if (!p) {
+    p = fetch(path, { cache: 'no-cache' }).then(r => {
+      if (!r.ok) throw new Error(`${path} ${r.status}`);
+      return r.json();
+    });
+    memCache.set(path, p);
+  }
   try { return await p; }
-  catch (err) { memCache.delete(path); if (soft) return null; throw err; }
+  catch (err) {
+    if (memCache.get(path) === p) memCache.delete(path);
+    if (soft) return null;
+    throw err;
+  }
 }
 
 const listPath = (s = state) => datasetPath(s.country, s.section, s.period, s.category, s.metric);
@@ -199,6 +208,15 @@ const Learn = {
     };
     trim(d.terms, LEARNING.maxTerms);
     trim(d.channels, LEARNING.maxChannels);
+    trim(d.categories, 40);
+    // opened は1本開くたびに増え続ける。古いものから落として localStorage を溢れさせない。
+    const cut = Date.now() - 90 * 864e5;
+    for (const [k, ts] of Object.entries(d.opened)) if (!ts || ts < cut) delete d.opened[k];
+    const openedKeys = Object.keys(d.opened);
+    if (openedKeys.length > 800) {
+      openedKeys.sort((a, b) => d.opened[a] - d.opened[b])
+        .slice(0, openedKeys.length - 800).forEach(k => delete d.opened[k]);
+    }
   },
   isMuted(key) { return this.load().muted.includes(key); },
   score(item) {
@@ -336,6 +354,7 @@ function adNode(slot) {
 }
 
 function skeletonList(target, n = 8) {
+  unobserveCards(target);
   target.replaceChildren();
   target.setAttribute('aria-busy', 'true');
   target.setAttribute('aria-label', t('state.loading'));
@@ -383,6 +402,14 @@ const io = 'IntersectionObserver' in window ? new IntersectionObserver(entries =
 }, { threshold: 0.6 }) : null;
 
 function observeCards(root) { if (io) $$('.card[data-video-id]', root).forEach(n => io.observe(n)); }
+/** 描き替える前に古いカードの監視を外す（交差しなかったカードは unobserve されないため）。 */
+function unobserveCards(root) { if (io) $$('.card[data-video-id]', root).forEach(n => io.unobserve(n)); }
+
+/** スケルトンで立てた aria-busy を必ず畳む。空・エラーで抜ける経路でも呼ぶこと。 */
+function endLoading(list) {
+  list.setAttribute('aria-busy', 'false');
+  list.setAttribute('aria-label', t('a11y.list'));
+}
 
 /* ------------------------------------------------------------------- axes */
 function buildAxes() {
@@ -499,9 +526,9 @@ async function renderEveryone() {
 }
 
 function paintRanking(list, items, { hero = false, why = false } = {}) {
+  unobserveCards(list);
   list.replaceChildren();
-  list.setAttribute('aria-busy', 'false');
-  list.setAttribute('aria-label', t('a11y.list'));
+  endLoading(list);
   if (!items || !items.length) { list.append(stateNode('empty')); return; }
   let sinceAd = 0, slot = 0;
   items.forEach((item, i) => {
@@ -521,6 +548,7 @@ function syncLearningSwitch() {
 
 async function renderMy() {
   const list = $('#my-list');
+  const my = ++state.reqId;                 // 遅れて返ってきた前の描画で上書きされないように
   skeletonList(list, 6);
   syncLearningSwitch();
   if (Learn.isEmpty()) {
@@ -535,6 +563,7 @@ async function renderMy() {
     box.append(b);
     li.append(box);
     list.replaceChildren(li);
+    endLoading(list);
     return;
   }
   // 候補プール: いまの国の主要リストをまとめて読む（キャッシュ済みなら即返る）
@@ -543,6 +572,7 @@ async function renderMy() {
     wanted.push(datasetPath(state.country, s.id, p, 'all'));
   }
   const pools = await Promise.all(wanted.map(p => getJSON(p, { soft: true })));
+  if (my !== state.reqId) return;
   const seen = new Set(); const cand = [];
   pools.filter(Boolean).forEach(d => d.items.forEach(it => {
     if (seen.has(it.videoId)) return;
@@ -633,8 +663,10 @@ function renderInspector() {
 /* -------------------------------------------------------------- tags view */
 async function renderTags() {
   const list = $('#tag-list');
+  const my = ++state.reqId;
   list.replaceChildren();
   const data = await getJSON(`data/tags-${state.country}.json`, { soft: true });
+  if (my !== state.reqId) return;
   if (!data || !data.items?.length) {
     const li = el('li'); const box = el('div', 'state');
     box.append(el('p', 'state-title', t('tags.empty')));
@@ -658,6 +690,7 @@ function project(lat, lon) { return { x: (lon + 180) / 360 * 100, y: (90 - lat) 
 
 async function renderMap() {
   const wrap = $('#map-wrap');
+  const my = ++state.reqId;
   wrap.replaceChildren();
   const box = el('div', 'mapbox');
   const svg = document.createElementNS('http://www.w3.org/2000/svg', 'svg');
@@ -679,6 +712,7 @@ async function renderMap() {
   box.append(svg);
 
   const data = await getJSON('data/map.json', { soft: true });
+  if (my !== state.reqId) return;
   if (!data) {
     wrap.append(el('p', 'state-body', t('map.empty')));
     return;
@@ -786,13 +820,12 @@ function normalize() {
   if (state.metric === 'growth' && !growthAvailable()) state.metric = 'published';
 }
 
-let navLock = false;
 async function go(patch = {}, { push = true, dir = 0 } = {}) {
   Object.assign(state, patch);
   normalize();
   if (patch.country) LS.set('ytta.country', state.country);
   const h = hashOf();
-  if (push && location.hash !== h) { navLock = true; location.hash = h; setTimeout(() => { navLock = false; }, 0); }
+  if (push && location.hash !== h) location.hash = h;
   if (dir && !state.reduceMotion) {
     const w = $('#list-wrap');
     w.classList.remove('zap-l', 'zap-r');
@@ -803,7 +836,8 @@ async function go(patch = {}, { push = true, dir = 0 } = {}) {
 }
 
 window.addEventListener('hashchange', () => {
-  if (navLock) return;
+  // go() 自身が書き換えたハッシュなら状態は既に一致している。タイマーで抑えるより確実。
+  if (location.hash === hashOf()) return;
   if (readHash()) { normalize(); renderCurrentView(); }
 });
 
@@ -853,9 +887,11 @@ document.addEventListener('keydown', e => {
 let toastTimer = 0;
 function toast(msg) {
   const n = $('#toast');
-  n.textContent = msg; n.hidden = false;
+  // hidden のまま書き換えるとライブリージョンとして読まれない。先に出してから入れる。
+  n.hidden = false;
+  requestAnimationFrame(() => { n.textContent = msg; });
   clearTimeout(toastTimer);
-  toastTimer = setTimeout(() => { n.hidden = true; }, 2200);
+  toastTimer = setTimeout(() => { n.hidden = true; n.textContent = ''; }, 2200);
 }
 
 /* --------------------------------------------------------------- settings */
@@ -866,6 +902,8 @@ function optionRow(labelKey, options, current, onPick) {
   options.forEach(o => {
     const b = el('button', 'chip' + (o.id === current ? ' is-active' : ''), o.label);
     b.type = 'button';
+    // 選ぶとシートを描き直すので、描き直したあと同じ項目にフォーカスを戻すための目印。
+    b.dataset.opt = `${labelKey}:${o.id}`;
     b.addEventListener('click', () => onPick(o.id));
     row.append(b);
   });
@@ -873,26 +911,28 @@ function optionRow(labelKey, options, current, onPick) {
   return g;
 }
 
-function openSettings() {
+function openSettings({ focus = true, refocus = null } = {}) {
   const body = $('#sheet-body');
   body.replaceChildren();
+  // 選択のたびにシートを描き直す。描き直したら、いま押した項目にフォーカスを戻す。
+  const reopen = key => openSettings({ focus: false, refocus: key });
 
   body.append(optionRow('settings.language', LANGUAGES.map(l => ({ id: l.id, label: l.label })), state.lang,
-    async id => { await loadLang(id); applyStatic(); buildAxes(); await renderCurrentView(); openSettings(); }));
+    async id => { await loadLang(id); applyStatic(); buildAxes(); await renderCurrentView(); reopen(`settings.language:${id}`); }));
 
   body.append(optionRow('settings.theme',
     [['auto', 'settings.theme.auto'], ['light', 'settings.theme.light'], ['dark', 'settings.theme.dark']]
       .map(([id, k]) => ({ id, label: t(k) })), state.themePref,
-    id => { setTheme(id); openSettings(); }));
+    id => { setTheme(id); reopen(`settings.theme:${id}`); }));
 
   body.append(optionRow('settings.country',
     COUNTRIES.map(c => ({ id: c.code, label: `${c.flag} ${t('country.' + c.code)}` })), state.country,
-    id => { go({ country: id }); openSettings(); }));
+    id => { go({ country: id }); reopen(`settings.country:${id}`); }));
 
   body.append(optionRow('settings.swipeAxis',
     ['period', 'section', 'category', 'country'].map(id => ({ id, label: t('settings.swipeAxis.' + id) })),
     state.swipeAxis,
-    id => { state.swipeAxis = id; LS.set('ytta.swipeAxis', id); openSettings(); }));
+    id => { state.swipeAxis = id; LS.set('ytta.swipeAxis', id); syncAxes(); reopen(`settings.swipeAxis:${id}`); }));
 
   const g = el('div', 'set-group');
   g.append(el('p', 'set-label', t('settings.reduceMotion')));
@@ -920,7 +960,11 @@ function openSettings() {
   $('#sheet-backdrop').hidden = false;
   $('#sheet-settings').hidden = false;
   setBackgroundInert(true);
-  $('#sheet-close').focus();
+  // 開いた瞬間は閉じるボタン、描き直しのときは押した項目へ。
+  // どちらもしないとフォーカスが body に落ちてキーボード操作が続けられない。
+  const back = refocus && $(`#sheet-body [data-opt="${refocus}"]`);
+  if (back) back.focus();
+  else if (focus) $('#sheet-close').focus();
 }
 
 /** シートを開いている間、背後の UI をフォーカス・支援技術の両方から外す。 */

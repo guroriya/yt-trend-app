@@ -7,7 +7,11 @@
    data-theme には解決済みの light|dark だけを置く。 */
 (function () {
   try {
-    var p = localStorage.getItem('ytta.theme') || 'auto';
+    /* app.js の LS.set は JSON.stringify して書く。生の文字列として読むと "dark" が
+       ダブルクォート込みになり一致しない。同じ読み方に揃える。 */
+    var raw = localStorage.getItem('ytta.theme');
+    var p = 'auto';
+    try { p = raw == null ? 'auto' : JSON.parse(raw); } catch (e) { p = raw || 'auto'; }
     var dark = p === 'dark' || (p === 'auto' && window.matchMedia('(prefers-color-scheme: dark)').matches);
     document.documentElement.setAttribute('data-theme', dark ? 'dark' : 'light');
   } catch (e) { document.documentElement.setAttribute('data-theme', 'light'); }
@@ -18,6 +22,8 @@
 <meta name="description" content="Zap between everyone's YouTube ranking and your own. 24h / week / month / year / all time, videos and shorts, by country.">
 <meta name="theme-color" content="#ffffff" media="(prefers-color-scheme: light)">
 <meta name="theme-color" content="#0d0f14" media="(prefers-color-scheme: dark)">
+<!-- media 無しの1枚。テーマを手動で切り替えたとき app.js がここを書き換える -->
+<meta name="theme-color" content="#ffffff">
 <meta name="color-scheme" content="light dark">
 <link rel="manifest" href="manifest.webmanifest">
 <link rel="icon" href="icons/icon.svg" type="image/svg+xml">
