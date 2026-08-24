@@ -304,16 +304,22 @@ ol, ul { list-style: none; margin: 0; padding: 0; }
   color: var(--on-accent); font-size: 10px; font-weight: 900; letter-spacing: .06em; text-transform: uppercase;
 }
 .card-hero .hero-line { display: flex; align-items: center; gap: 6px; flex-wrap: wrap; }
-/* 順位数字はサムネの上に重ねる（縦を食わずに1位を特別扱いする） */
+/* 順位数字はサムネの上に重ねる（縦を食わずに1位を特別扱いする）。
+   グラデーションの暗幕だけだと、明るいサムネの上では白文字のコントラストが
+   3:1 を割る（憲章: コントラストは WCAG AA）。数字の下だけ不透明な板を敷いて、
+   どんな絵が来ても大文字の 3:1 を必ず満たすようにする（実測 5.2:1）。 */
 .card-hero .hero-rank {
-  position: absolute; left: 6px; bottom: 2px; z-index: 2;
-  font-size: 40px; font-weight: 900; line-height: .9; letter-spacing: -.06em;
+  position: absolute; left: 0; bottom: 0; z-index: 2;
+  padding: 0 10px 3px 7px;
+  background: rgba(6,8,12,.85);
+  border-radius: 0 10px 0 var(--r);
+  font-size: 40px; font-weight: 900; line-height: 1; letter-spacing: -.06em;
   color: #fff; font-variant-numeric: tabular-nums;
-  text-shadow: 0 2px 10px rgba(0,0,0,.75), 0 0 2px rgba(0,0,0,.6);
+  text-shadow: 0 1px 6px rgba(0,0,0,.6);
 }
 .card-hero .thumb::after {
   content: ""; position: absolute; inset: auto 0 0 0; height: 56%;
-  background: linear-gradient(180deg, transparent, rgba(6,8,12,.62));
+  background: linear-gradient(180deg, transparent, rgba(6,8,12,.5));
 }
 .card-hero .title { font-size: 15px; -webkit-line-clamp: 2; }
 .card-hero .views { font-size: 13.5px; }
