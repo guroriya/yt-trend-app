@@ -25,3 +25,6 @@ ORDER §1-1 に従い、発注者に確認せず自己解決した判断を1行�
 - 2026-08-25 | tooling | `tools/audit.js`（憲章の機械チェック）と `tools/devserve.py`（.mjs を配る開発サーバー）を用意 | スクリーンショットが撮れない環境でも、密度・タップ目標・コントラスト・横あふれは数値で判定できる。純粋関数モジュール（plan.mjs / schema.mjs）はブラウザで実行して検証した
 - 2026-08-25 | tooling | `python tools/mock.py --growth` で「伸び」ランキングのサンプルも生成できるようにした | ORDER §2-14 の自動有効化（index.json の features.growth）を実データを待たずに UI/E2E で確認するため。既定（フラグ無し）は enabled:false ＝ 実際の初期状態と同じ
 - 2026-08-25 | env | この環境のブラウザでは Service Worker の登録自体ができない（`An unknown error occurred when fetching the script`。HTTP/1.1・MIME 正常でも同じ）。PWA／オフラインの実動確認は CI の Playwright に委ねる | 埋め込みブラウザ側の制約でコードの問題ではない。登録タイミングのバグ（load 発火後に addEventListener していた）はこの調査で見つけて修正済み
+- 2026-08-25 | env | この環境のブラウザは Service Worker 登録も IntersectionObserver の発火もできない（ペインが描画されていないため）。PWA オフラインと「表示ログ学習」の実動確認は CI の Playwright に委ねる | 埋め込みブラウザ側の制約。コードの問題ではないことを、手動 `Learn.record()` が正しく動くことで切り分けた
+- 2026-08-25 | ci | Service Worker の `VERSION` は公開直前に CI がコミット SHA へ書き換える | ビルド工程が無い（ORDER §3）ため、固定値のままだと本番の cache-first シェルが二度と更新されない。sed 1行で済み、開発時の手編集も妨げない
+- 2026-08-25 | qa | 未実行コードは「独立レビュー → 各指摘を別エージェントが反証」の二段で検証し、反証できなかったものだけ直す | ローカルで走らせられない以上、机上レビューの精度を上げるしかない。実際に 26 件中 5 件が確認され、残りは誤読・修正済みだった
