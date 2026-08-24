@@ -9,7 +9,7 @@
  * APIキーはログにも例外メッセージにも絶対に出さない（ORDER §1-7）。
  */
 
-import { parseDuration, sleep } from './util.mjs';
+import { parseDuration, sleep } from './pure.mjs';
 
 const BASE = 'https://www.googleapis.com/youtube/v3';
 

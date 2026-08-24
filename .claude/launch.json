@@ -4,8 +4,14 @@
     {
       "name": "yt-trend-app",
       "runtimeExecutable": "python",
-      "runtimeArgs": ["-m", "http.server", "4173", "--directory", "C:/Users/Owner/yt-trend-app/public"],
+      "runtimeArgs": ["tools/devserve.py", "4173", "public"],
       "port": 4173
+    },
+    {
+      "name": "yt-trend-app-modules",
+      "runtimeExecutable": "python",
+      "runtimeArgs": ["tools/devserve.py", "4175", "."],
+      "port": 4175
     }
   ]
 }

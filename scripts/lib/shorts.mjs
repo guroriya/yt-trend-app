@@ -3,14 +3,14 @@
  *   長さ ≤ 3分 を候補にし、https://www.youtube.com/shorts/{videoId} の到達性で確定する。
  *   この HTTP 確認は **API 割当を消費しない**。
  *   ショートでない動画に /shorts/{id} でアクセスすると /watch?v={id} へリダイレクトされる、
- *   という YouTube の挙動を使う（redirect:'manual' で 200 か 3xx かを見る）。
+ *   という YouTube の挙動を使う（リダイレクトを追って最終 URL を見る）。
  *
  *   判定結果は state/_shorts_cache.json に 30日 TTL で保存する。
  *   ネットワークが不調なときは「長さ ≤ 3分ならショート」というヒューリスティックに落ちる
  *   （ORDER は数%の誤判定を許容している）。
  */
 
-import { pMap } from './util.mjs';
+import { pMap } from './pure.mjs';
 
 const SHORTS_URL = id => `https://www.youtube.com/shorts/${id}`;
 const TTL_MS = 30 * 864e5;
