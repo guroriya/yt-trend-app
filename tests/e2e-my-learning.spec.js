@@ -8,7 +8,7 @@
 
 import { test, expect } from '@playwright/test';
 import {
-  gotoApp, waitForList, everyoneHash, seedLearning, readLearning,
+  gotoApp, waitForList, seedLearning, readLearning,
   COUNTRIES, MAP_COUNTRIES, LEARNING, I18N,
 } from './helpers.js';
 

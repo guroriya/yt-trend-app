@@ -63,7 +63,11 @@ export default defineConfig({
   ],
 
   webServer: {
-    command: 'npm run serve',
+    // public/data/ は git に入れていない（ORDER §8）。ローカルで初めて回すときに
+    // データが無くて全部落ちるのを防ぐため、配信の前に必ずモックを作る。
+    // 既に実データがある場合に上書きしたくないなら、先に npm run serve を別で立てておけば
+    // reuseExistingServer がそちらを使う。
+    command: 'npm run mock && npm run serve',
     port: PORT,
     reuseExistingServer: !process.env.CI,
     timeout: 60_000,
