@@ -46,7 +46,14 @@ export class YouTube {
 
     let lastErr;
     for (let attempt = 0; attempt < 4; attempt++) {
-      if (attempt) await sleep(500 * 2 ** attempt);
+      if (attempt) {
+        // リトライも同じだけ割当を食う。1回ぶんの認可で4回投げてしまわないよう毎回ガードを見る。
+        if (!this.canSpend(cost)) throw new QuotaExceededError(`local quota guard stopped the retry of ${safeUrl}`);
+        await sleep(500 * 2 ** attempt);
+      }
+      // units は「リクエストを投げた時点」で消費される。タイムアウトや切断で応答を
+      // 読めなくても、サーバー側では消費済み。だから fetch の前に必ず計上する。
+      this.onSpend(cost, endpoint);
       let res;
       try {
         res = await fetch(url, { signal: AbortSignal.timeout(20000) });
@@ -54,8 +61,6 @@ export class YouTube {
         lastErr = new ApiError(`network error on ${safeUrl}: ${err.message}`, 0);
         continue;
       }
-      // units は「リクエストを投げた時点」で消費される。失敗しても計上する。
-      this.onSpend(cost, endpoint);
       if (res.ok) return res.json();
 
       let body = null;
@@ -85,7 +90,6 @@ export class YouTube {
       type: 'video',
       order: 'viewCount',
       regionCode,
-      relevanceLanguage: undefined,
       publishedAfter,
       videoCategoryId,
       videoDuration,
@@ -102,10 +106,11 @@ export class YouTube {
   /** id 指定で詳細を取る（50件/回・1 unit）。 */
   async videos(ids, { costVideos = 1 } = {}) {
     if (!ids.length) return [];
+    // maxResults は id 指定の videos.list では使えない（併用すると 400 になる）。
+    // id は最大50件までで、それ以上は呼び出し側で chunk 済み。
     const data = await this.#call('videos', {
       part: 'snippet,statistics,contentDetails',
-      id: ids.join(','),
-      maxResults: 50,
+      id: ids.slice(0, 50).join(','),
     }, costVideos);
     return (data.items || []).map(normalizeVideo);
   }

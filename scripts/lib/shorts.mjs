@@ -14,6 +14,9 @@ import { pMap } from './pure.mjs';
 
 const SHORTS_URL = id => `https://www.youtube.com/shorts/${id}`;
 const TTL_MS = 30 * 864e5;
+// 判定できなかったとき（タイムアウト・同意画面など）の推測も短い TTL で覚えておく。
+// 覚えないと同じ動画を毎回叩き直してしまい、失敗が続くほど実行時間だけが伸びる。
+const GUESS_TTL_MS = 6 * 3600e3;
 const MAX_SEC = 180;
 
 /**
@@ -29,7 +32,8 @@ export async function confirmShorts(items, cache, { concurrency = 6, now = Date.
   for (const it of items) {
     if (it.durationSec > MAX_SEC) { decided.set(it.videoId, false); continue; }  // 3分超は候補外
     const hit = cache[it.videoId];
-    if (hit && now - hit.t < TTL_MS) { decided.set(it.videoId, hit.v); continue; }
+    const ttl = hit && hit.guess ? GUESS_TTL_MS : TTL_MS;
+    if (hit && now - hit.t < ttl) { decided.set(it.videoId, hit.v); continue; }
     toCheck.push(it.videoId);
   }
 
@@ -39,6 +43,7 @@ export async function confirmShorts(items, cache, { concurrency = 6, now = Date.
     if (verdict === null) {
       failed++;
       decided.set(id, true);                       // フォールバック: 3分以内なのでショート扱い
+      cache[id] = { v: true, t: now, guess: true }; // 短い TTL で覚え、同じ実行内で叩き直さない
       return;
     }
     decided.set(id, verdict);
@@ -85,7 +90,8 @@ export async function isShortByHttp(videoId) {
 export function pruneShortsCache(cache, now = Date.now()) {
   let removed = 0;
   for (const [id, entry] of Object.entries(cache)) {
-    if (!entry || now - entry.t >= TTL_MS) { delete cache[id]; removed++; }
+    const ttl = entry && entry.guess ? GUESS_TTL_MS : TTL_MS;
+    if (!entry || now - entry.t >= ttl) { delete cache[id]; removed++; }
   }
   return removed;
 }

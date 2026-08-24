@@ -89,6 +89,9 @@ export const SCHEDULE = {
     { id: 'categories', everyHours: 24,  floorHours: 168, priority: 3, desiredHours: 24 },
     { id: 'yearall',    everyHours: 168, floorHours: 720, priority: 4, desiredHours: 168 },
     { id: 'map',        everyHours: 24,  floorHours: 168, priority: 5, desiredHours: 24 },
+    // タグ集計は公開中の JSON を数え直すだけで API を使わない（0 units）。
+    // planner の対象に入れておくと「いつ回すか」も1箇所で管理できる。
+    { id: 'tags',       everyHours: 6,   floorHours: 24,  priority: 6, desiredHours: 6 },
   ],
 };
 

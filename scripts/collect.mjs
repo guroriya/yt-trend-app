@@ -15,7 +15,7 @@ import {
   COUNTRIES, SECTIONS, PERIODS, MAP_COUNTRIES, QUOTA, RETENTION, datasetId,
 } from '../public/js/config.js';
 import {
-  DATA_DIR, STATE_DIR, chunk, ensureDir, listDir, log, parseArgs, quotaDate, readJSON, removeFile, writeJSON,
+  DATA_DIR, PREV_DIR, STATE_DIR, chunk, ensureDir, listDir, log, parseArgs, quotaDate, readJSON, removeFile, writeJSON,
 } from './lib/util.mjs';
 import { formatPlan, isDue, listsOfJob, planSchedule } from './lib/plan.mjs';
 import { QuotaExceededError, YouTube, publishedAfterFor } from './lib/youtube.mjs';
@@ -60,6 +60,21 @@ const onSpend = (units, endpoint) => {
   budget.byEndpoint[endpoint] = (budget.byEndpoint[endpoint] || 0) + units;
 };
 const canSpend = units => budget.spent + units <= HARD_STOP;
+
+/** 消費した割当は取り返せない。落ちても巻き戻らないよう、こまめに書き出す。 */
+async function persistState() {
+  try {
+    await writeJSON(BUDGET_FILE, budget, { pretty: true });
+    await writeJSON(SHORTS_FILE, shortsCache);
+    await writeJSON(LASTRUN_FILE, lastRun, { pretty: true });
+  } catch (err) {
+    log.warn(`could not persist state: ${err.message}`);
+  }
+}
+// タイムアウトで殺されたとき（Actions の timeout-minutes 等）にも最後の一手で保存する。
+for (const sig of ['SIGINT', 'SIGTERM']) {
+  process.on(sig, () => { persistState().finally(() => process.exit(1)); });
+}
 
 /* --------------------------------------------------------- 実行ジョブ決定 */
 
@@ -165,7 +180,11 @@ async function collectList(desc, { adaptive = false } = {}) {
     const more = await yt.videos(extra.ids.slice(0, 50), { costVideos: QUOTA.costVideos });
     const cand2 = more.filter(d => d.durationSec > 0 && d.durationSec <= SHORT_MAX_SEC);
     const r2 = await confirmShorts(cand2, shortsCache, { now: now.getTime() });
-    items.push(...more.map(d => ({ ...d, isShort: r2.decided.get(d.videoId) ?? false })).filter(d => !d.isShort));
+    // 追加ページは前ページと重なることがある。videoId の重複はスキーマ違反なので必ず落とす。
+    const seenIds = new Set(items.map(i => i.videoId));
+    items.push(...more
+      .map(d => ({ ...d, isShort: r2.decided.get(d.videoId) ?? false }))
+      .filter(d => !d.isShort && !seenIds.has(d.videoId)));
   }
 
   items.sort((a, b) => (b.viewCount ?? 0) - (a.viewCount ?? 0));
@@ -178,15 +197,22 @@ const pools = new Map(COUNTRIES.map(c => [c.code, new Map()]));
 const allSeen = new Map();           // スナップショット用（国をまたいだ和集合）
 const written = [];
 
+/**
+ * @returns {Promise<boolean>} 全リストを取り切れたら true。
+ *   途中で打ち切った場合に true を返すと lastRun が進み、次の実行間隔まで穴が埋まらない。
+ */
 async function runListJob(jobId) {
   currentJob = jobId;
   const lists = listsOfJob(jobId);
   log.step(`${jobId} — ${lists.length} list(s)`);
+  let complete = true;
   for (const desc of lists) {
-    if (!canSpend(QUOTA.costSearch)) { log.warn('hard stop reached — stopping this job'); break; }
+    if (!canSpend(QUOTA.costSearch)) { log.warn('hard stop reached — stopping this job'); complete = false; break; }
     const id = datasetId(desc.country, desc.section, desc.period, desc.category);
     try {
       const raw = await collectList(desc, { adaptive: jobId === 'top24h' });
+      // 0 件を書くと公開中のデータと prev（順位変動の比較元）まで消える。前回のものを残す。
+      if (!raw.length) { log.warn(`${id}: 0 items — keeping the previous file`); complete = false; continue; }
       const { ranks, generatedAt: prevGeneratedAt } = await loadPrevRanks(id);
       const items = applyRanks(raw, ranks);
       const res = await writeList({
@@ -203,8 +229,10 @@ async function runListJob(jobId) {
     } catch (err) {
       if (err instanceof QuotaExceededError) throw err;
       log.warn(`${id}: ${err.message}`);
+      complete = false;
     }
   }
+  return complete;
 }
 
 async function runMapJob() {
@@ -217,13 +245,16 @@ async function runMapJob() {
       const top = await yt.mostPopular({ regionCode: mc.code, maxResults: 5, costVideos: QUOTA.costVideos });
       const best = top.filter(v => v.viewCount != null).sort((a, b) => b.viewCount - a.viewCount)[0];
       if (!best) continue;
+      // normalizeVideo は isShort:false 固定。長さから補正したものを母集団にも入れる
+      // （補正前を入れると「伸び」ランキングの部門分けが全部 video 側に寄る）。
+      const item = { ...best, isShort: best.durationSec > 0 && best.durationSec <= SHORT_MAX_SEC };
       items.push({
         country: mc.code, lat: mc.lat, lon: mc.lon,
-        videoId: best.videoId, title: best.title, channelTitle: best.channelTitle,
-        viewCount: best.viewCount, isShort: best.durationSec > 0 && best.durationSec <= SHORT_MAX_SEC,
+        videoId: item.videoId, title: item.title, channelTitle: item.channelTitle,
+        viewCount: item.viewCount, isShort: item.isShort,
       });
-      allSeen.set(best.videoId, best);
-      pools.get(mc.code)?.set(best.videoId, best);
+      allSeen.set(item.videoId, item);
+      pools.get(mc.code)?.set(item.videoId, item);
     } catch (err) {
       if (err instanceof QuotaExceededError) throw err;
       log.warn(`map ${mc.code}: ${err.message}`);
@@ -255,6 +286,22 @@ async function runTagsJob() {
   }
 }
 
+/**
+ * 「伸び」の母集団を、この実行で取ったぶんだけでなく公開中の JSON でも埋める。
+ * こうしないと、例えば top24h だけ走った実行で week/month の伸びが空になり、
+ * 直前に公開していた伸びランキングを空で上書きしてしまう。
+ */
+async function seedPoolsFromPublished() {
+  for (const f of await listDir(DATA_DIR)) {
+    if (!f.endsWith('.json') || f === 'index.json' || f === 'map.json' || f.startsWith('tags-')) continue;
+    const d = await readJSON(join(DATA_DIR, f), null);
+    if (!d?.items || d.metric === 'growth') continue;      // 伸び自身は母集団にしない
+    const bucket = pools.get(d.country);
+    if (!bucket) continue;
+    for (const it of d.items) if (!bucket.has(it.videoId)) bucket.set(it.videoId, it);
+  }
+}
+
 /** 「伸び」ランキング。蓄積が足りたら自動で生える（ORDER §2-14）。 */
 async function runGrowth(feature) {
   if (!feature.enabled) {
@@ -271,7 +318,7 @@ async function runGrowth(feature) {
       for (const s of SECTIONS) {
         const scoped = pools.get(c.code) || new Map();
         const items = computeGrowthItems({ pool: scoped, past, size: 100, section: s.id });
-        if (!items.length) continue;
+        if (!items.length) continue;                       // 空で上書きしない（前回を残す）
         const id = datasetId(c.code, s.id, pid, 'all', 'growth');
         const { ranks, generatedAt: prevGeneratedAt } = await loadPrevRanks(id);
         const ranked = applyRanks(items, ranks);
@@ -291,16 +338,22 @@ async function runGrowth(feature) {
 /* ------------------------------------------------------------------ 実行 */
 
 let quotaHalted = false;
+let fatal = null;
 try {
   for (const job of dueJobs) {
+    let complete = true;
     if (job.id === 'map') await runMapJob();
     else if (job.id === 'tags') continue;                 // 最後にまとめて走らせる
-    else await runListJob(job.id);
-    lastRun[job.id] = nowISO;
+    else complete = await runListJob(job.id);
+    // 途中で打ち切ったジョブは lastRun を進めない。次の実行で残りを取りにいく。
+    if (complete) lastRun[job.id] = nowISO;
+    else log.warn(`${job.id}: incomplete — will be retried on the next run`);
+    await persistState();                                 // ジョブ単位で確実に残す
   }
 
   if (allSeen.size) await appendSnapshot([...allSeen.values()], now);
   const feature = await growthFeature(PERIODS, now);
+  await seedPoolsFromPublished();
   await runGrowth(feature);
 
   if (dueJobs.some(j => j.id === 'tags') || written.length) {
@@ -312,8 +365,11 @@ try {
     quotaHalted = true;
     log.warn(`stopped early: ${err.message}`);
   } else {
-    throw err;
+    fatal = err;                                          // 後始末を済ませてから投げ直す
+    log.warn(`run failed: ${err.message}`);
   }
+} finally {
+  await persistState();
 }
 
 /* -------------------------------------------------------- 後始末と index */
@@ -322,6 +378,17 @@ const removedSnaps = await pruneSnapshots(now);
 if (removedSnaps.length) log.info(`pruned ${removedSnaps.length} snapshot(s) older than ${RETENTION.snapshotDays} days`);
 const removedShorts = pruneShortsCache(shortsCache, now.getTime());
 if (removedShorts) log.info(`pruned ${removedShorts} stale shorts-cache entries`);
+
+// state/prev/*.json も videoId を持つ＝API 由来のデータ。30日を超えたものは消す（ORDER §8）。
+for (const f of await listDir(PREV_DIR)) {
+  if (!f.endsWith('.json')) continue;
+  const d = await readJSON(join(PREV_DIR, f), null);
+  const ts = d?.generatedAt ? Date.parse(d.generatedAt) : 0;
+  if (!ts || (now.getTime() - ts) / 864e5 > RETENTION.dataMaxAgeDays) {
+    await removeFile(join(PREV_DIR, f));
+    log.info(`pruned state/prev/${f} (older than ${RETENTION.dataMaxAgeDays} days)`);
+  }
+}
 
 // ORDER §8: 取得した API データの保存は30日以内にリフレッシュまたは削除。
 // 何らかの理由で更新されなくなったデータセットは、ここで消える。
@@ -365,12 +432,13 @@ await writeIndex({
   generatedAt: nowISO,
 });
 
-await writeJSON(BUDGET_FILE, budget, { pretty: true });
-await writeJSON(SHORTS_FILE, shortsCache);
-await writeJSON(LASTRUN_FILE, lastRun, { pretty: true });
+await persistState();
 
 log.step('summary');
 log.info(`lists written: ${written.length}`);
 log.info(`units spent this run: ${budget.spent - spentAtStart} (today total ${budget.spent}/${QUOTA.dailyUnits})`);
 log.info(`growth: ${feature.enabled ? feature.periods.join(', ') : `off (${feature.daysCollected}/${feature.requiredDays} days)`}`);
+
+// 後始末（state の保存と index の生成）を終えてから、致命的な例外は投げ直して CI を赤くする。
+if (fatal) throw fatal;
 log.done('done');
