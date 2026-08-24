@@ -144,7 +144,13 @@ async function collectList(desc, { adaptive = false } = {}) {
   const candidates = details.filter(d => d.durationSec > 0 && d.durationSec <= SHORT_MAX_SEC);
   const { decided, checked, failed } = await confirmShorts(candidates, shortsCache, { now: now.getTime() });
   details = details.map(d => ({ ...d, isShort: decided.get(d.videoId) ?? false }));
-  if (checked) log.info(`   shorts check: ${checked} verified, ${failed} fell back to duration`);
+  if (checked) {
+    const line = `shorts check: ${checked} verified, ${failed} fell back to duration`;
+    // 失敗が半数を超えるのは「同意画面に飛ばされている」等の系統的な失敗。
+    // 判定が丸ごとヒューリスティックに落ちて部門の精度が落ちるので、目立つように出す。
+    if (failed / checked > 0.5) log.warn(`   ${line} — 判定がほぼ機能していません（要調査）`);
+    else log.info(`   ${line}`);
+  }
 
   let items = details.filter(d => (desc.section === 'shorts' ? d.isShort : !d.isShort));
 

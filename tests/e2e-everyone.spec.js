@@ -12,7 +12,7 @@
 
 import { test, expect } from '@playwright/test';
 import {
-  gotoApp, waitForList, everyoneHash, appGo,
+  gotoApp, waitForList, everyoneHash, appState, swipeList,
   expectedItemCount, expectedAdCount, expectedAdPositions,
   WATCH_URL_RE, SHORTS_URL_RE,
   readIndexJSON, readDataset,
@@ -210,7 +210,6 @@ test.describe('ランキングカード', () => {
 
 test.describe('ザッピング（スワイプ／矢印キー）', () => {
   test('横スワイプで期間が前後に動く', async ({ page }) => {
-    const { swipeList } = await import('./helpers.js');
     await gotoApp(page);
     await waitForList(page);
     expect(PERIODS[0].id).toBe('24h');
@@ -286,8 +285,11 @@ test.describe('「伸び」ランキングの自動有効化（ORDER §2-14）',
     await routeIndexGrowth(page, { enabled: false, daysCollected: 0, requiredDays: 3, periods: [] });
     await gotoApp(page, everyoneHash({ metric: 'growth' }));
     await waitForList(page);
-    await expect(page).toHaveURL(/\/published$/);
+    // normalize() は state を戻すだけで URL は書き換えない（起動時の hash は温存される）。
+    // 大事なのは「存在しない -growth.json を取りに行かない」こと。
+    expect((await appState(page)).metric).toBe('published');
     await expect(page.locator('#axis-metric-row')).toBeHidden();
+    await expect(page.locator('#list .card[data-video-id]')).toHaveCount(expectedItemCount('all'));
   });
 });
 

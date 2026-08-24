@@ -48,14 +48,20 @@ export async function confirmShorts(items, cache, { concurrency = 6, now = Date.
   return { decided, checked: toCheck.length, failed };
 }
 
-/** @returns {Promise<boolean|null>} null は判定不能（ネットワーク不調） */
+/**
+ * リダイレクト先の URL で判定する。
+ *   /shorts/{id} のまま 200  → ショート
+ *   /watch?v={id} に飛ばされた → ショートではない
+ * `redirect:'manual'` でステータスだけ見るより確実（同意画面などで 200 を返されても、
+ * 最終 URL を見れば取り違えない）。本文は読まずに捨てるので転送量も小さい。
+ * @returns {Promise<boolean|null>} null は判定不能（ネットワーク不調）
+ */
 export async function isShortByHttp(videoId) {
   try {
     const res = await fetch(SHORTS_URL(videoId), {
       method: 'GET',
-      redirect: 'manual',
+      redirect: 'follow',
       headers: {
-        // ボットっぽさを減らしつつ、返ってくる本文は読まない（ヘッダだけ見る）
         'accept': 'text/html',
         'accept-language': 'en-US,en;q=0.9',
         'user-agent': 'Mozilla/5.0 (compatible; TrendZapBot/0.1; +https://github.com/)',
@@ -63,11 +69,13 @@ export async function isShortByHttp(videoId) {
       signal: AbortSignal.timeout(8000),
     });
     // 本文は使わないので即座に捨てる（ソケットを解放する）
-    try { res.body?.cancel?.(); } catch { /* noop */ }
-    if (res.status >= 300 && res.status < 400) return false;  // /watch へ飛ばされた = ショートではない
-    if (res.status === 200) return true;
+    try { await res.body?.cancel?.(); } catch { /* noop */ }
     if (res.status === 404 || res.status === 410) return false;
-    return null;
+    if (!res.ok) return null;
+    const finalUrl = res.url || '';
+    if (finalUrl.includes('/shorts/')) return true;
+    if (finalUrl.includes('/watch')) return false;
+    return null;                     // 同意画面などに飛ばされた: 判定せずヒューリスティックに任せる
   } catch {
     return null;
   }

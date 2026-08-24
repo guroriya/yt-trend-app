@@ -32,6 +32,17 @@ gh auth login
 
 **これが済むまでのあいだも作業は止まりません**（モックデータで UI を完成させています）。
 
+### 補足: いますぐローカルで画面を見るには（Node 不要）
+
+`public/data/` は git に入れていません（取得した API データを履歴に残さないため / ORDER §8）。
+一度だけ次を実行してからブラウザで開いてください。
+
+```
+cd C:\Users\Owner\yt-trend-app ; python tools/mock.py ; python -m http.server 4173 --directory public
+```
+
+→ http://localhost:4173/ を開く（Ctrl+C で停止）
+
 ---
 
 ## ゲートA（未着手 / 所要 30分）— YouTube Data API v3 のキー発行  ★P1 で必要
@@ -62,6 +73,26 @@ cd C:\Users\Owner\yt-trend-app ; gh repo create yt-trend-app --public --source=.
 
 作成後、GitHub のリポジトリ画面で:
 Settings →  Pages → **Build and deployment / Source** を `GitHub Actions` に変更 →保存。
+
+---
+
+## ゲートF（任意・急がない / 所要 20分＋審査）— API 割当の増枠申請
+
+ORDER §4 の理想は「24時間ランキングは毎時更新」ですが、既定割当 10,000 units/日では
+物理的に不可能なため、**既定は6時間ごと**にしています（詳細は `docs/BUDGET.md`）。
+毎時に近づけたい場合のみ、Google に増枠を申請してください。
+
+1. https://support.google.com/youtube/contact/yt_api_form を開く
+2. フォームに記入して送信（無料・審査あり・数週間かかることがあります）
+3. 通ったら `public/js/config.js` の `QUOTA.dailyUnits` を新しい値に書き換えるだけです。
+   **コードの変更は不要**。planner が自動で 6h → 4h → 3h → 2h → 1h と間隔を詰めます。
+
+| `dailyUnits` | 24時間ランキングの更新間隔 |
+|---:|---|
+| 10,000（既定） | 6時間 |
+| 15,000 | 3時間 |
+| 20,000 | 2時間 |
+| 30,000 | 1時間（ORDER の理想） |
 
 ---
 

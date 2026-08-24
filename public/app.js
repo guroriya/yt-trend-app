@@ -302,12 +302,34 @@ function cardNode(item, { hero = false, why = null } = {}) {
   return li;
 }
 
+/* -------------------------------------------------------------------- 広告枠
+   ORDER §2-9: リスト 8 件ごとに 1 枠。v1 はプレースホルダ（"AD" 表記のダミーカード）。
+   審査通過後（ORDER §7 ゲートC）は **fillAdSlot の中身だけ**を差し替える。
+   外側の <li class="card card-ad"> と "AD" バッジ、高さのリズムはそのまま使い回せる。
+
+     Web / AdSense インフィード:
+       box.append(insElement);  (adsbygoogle = window.adsbygoogle || []).push({});
+     Android / AdMob ネイティブ（Capacitor）:
+       window.AdMob?.showNativeAd({ slot, container: box });
+
+   差し替えるときの禁則（ORDER §5 / §8）:
+     - "AD" 表記は必ず残す（コンテンツと明確に区別する）
+     - カードの min-height を崩さない（リストのリズムを壊さない）
+     - プレイヤー上・周辺への重畳、再生前インタースティシャルは不可
+   外部から差し替えたい場合は window.__trendzapAds = (slot, box) => {...} を定義すれば、
+   このファイルを触らずに差し込める。 */
+function fillAdSlot(slot, box) {
+  if (typeof window.__trendzapAds === 'function') { window.__trendzapAds(slot, box); return; }
+  box.append(el('span', 'ad-thumb'), el('span', null, t('ad.placeholder')));   // v1: プレースホルダ
+}
+
 function adNode(slot) {
   const li = el('li', 'card card-ad');
   li.dataset.adSlot = slot;
   const wrap = el('div', 'card-link');
   const box = el('div', 'ad-box');
-  box.append(el('span', 'ad-tag', t('ad.label')), el('span', 'ad-thumb'), el('span', null, t('ad.placeholder')));
+  box.append(el('span', 'ad-tag', t('ad.label')));      // "AD" 表記は常に出す
+  fillAdSlot(slot, box);
   wrap.append(box);
   li.append(wrap);
   return li;
