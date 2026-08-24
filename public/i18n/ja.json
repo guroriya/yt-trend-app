@@ -89,7 +89,7 @@
   "state.offline": "オフライン — 保存済みのランキングを表示中",
   "state.stale": "{t}に更新 · まもなく更新されます",
   "state.updated": "{t}に更新",
-  "state.degraded": "API 割当のため、更新頻度を一時的に下げています。",
+  "state.degraded": "更新頻度を一時的に低下中（API割当）",
 
   "my.title": "あなたのランキング",
   "my.subtitle": "見たもの・開いたものから、この端末の中だけで作っています。外には出しません。",

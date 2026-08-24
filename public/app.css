@@ -18,10 +18,9 @@
   --text-3:    #5c6371;
   --accent:    #d1330f;   /* 小さい文字に使える濃さ（白背景 5.0:1） */
   --accent-fill:#ff4d2d;  /* 面。上に載る文字は --on-accent（濃色）を使う */
-  --on-accent: #14161a;   /* accent-fill / gold-fill の上に載せる文字色 */
+  --on-accent: #14161a;   /* accent-fill / gold の上に載せる文字色 */
   --accent-soft:#fff2ee;
-  --gold:      #b47500;
-  --gold-fill: #ffc247;
+  --gold:      #b47500;   /* テーマ可変。装飾でも下地から見えることを保証する */
   --up:        #0d7a3d;
   --up-soft:   #e4f5ec;
   --down:      #5a6070;
@@ -47,7 +46,7 @@
 :root[data-theme="dark"] {
   --bg:        #0d0f14;
   --bg-elev:   #161a22;
-  --bg-sunk:   #10131a;
+  --bg-sunk:   #1b2029;   /* --bg と 1.03:1 まで潰れていたので持ち上げた（OLED で分離する） */
   --line:      #262c38;
   --line-strong:#39414f;
   --text:      #eef1f6;
@@ -58,7 +57,6 @@
   --on-accent: #0d0f14;
   --accent-soft:#3a1a12;
   --gold:      #ffc247;
-  --gold-fill: #ffc247;
   --up:        #3ddc84;
   --up-soft:   #10301f;
   --down:      #8b94a4;
@@ -114,7 +112,7 @@ ol, ul { list-style: none; margin: 0; padding: 0; }
 .brand { display: flex; align-items: center; gap: 7px; min-width: 0; margin-right: auto; }
 .brand-mark {
   width: 16px; height: 16px; border-radius: 4px; flex: none;
-  background: linear-gradient(135deg, var(--accent-fill), var(--gold-fill));
+  background: linear-gradient(135deg, var(--accent-fill), var(--gold));
   box-shadow: 0 0 0 2px var(--bg), 0 0 12px 0 color-mix(in srgb, var(--accent-fill) 55%, transparent);
 }
 .brand-name { font-weight: 800; letter-spacing: -.02em; font-size: 17px; white-space: nowrap; }
@@ -146,9 +144,8 @@ ol, ul { list-style: none; margin: 0; padding: 0; }
 .mode.is-active { color: var(--text); }
 .mode.is-active::after {
   content: ""; position: absolute; inset: auto 14% 0 14%; height: 3px; border-radius: 3px 3px 0 0;
-  background: linear-gradient(90deg, var(--accent-fill), var(--gold-fill));
+  background: linear-gradient(90deg, var(--accent-fill), var(--gold));
 }
-.mode-ink { display: none; }
 
 /* ---------- axes ---------- */
 .axes { background: var(--bg); border-bottom: 1px solid var(--line); }
@@ -196,6 +193,8 @@ ol, ul { list-style: none; margin: 0; padding: 0; }
 .segmented button::before { content: ""; position: absolute; inset: -6px 0; }
 .segmented button.is-active { background: var(--bg); color: var(--text); box-shadow: var(--shadow); }
 .segmented-metric button.is-active { color: var(--accent); }
+.segmented button:disabled { opacity: .45; cursor: default; }
+.segmented button:disabled::before { content: none; }
 
 /* ---------- status bar ---------- */
 .statusbar {
@@ -235,11 +234,11 @@ ol, ul { list-style: none; margin: 0; padding: 0; }
 
 .delta {
   font-size: 10px; font-weight: 800; line-height: 1.5; letter-spacing: .01em;
-  padding: 0 4px; border-radius: var(--r-sm); white-space: nowrap;
+  padding: 0 3px; border-radius: var(--r-sm); white-space: nowrap;   /* NEW が順位列(30px)に収まる幅 */
   font-variant-numeric: tabular-nums;
 }
 .delta-up   { color: var(--up);   background: var(--up-soft); }
-.delta-down { color: var(--down); background: var(--down-soft); }
+.delta-down { color: var(--down); background: transparent; }   /* 下降は引く。上昇と NEW を立てるため */
 .delta-same { color: var(--text-3); background: transparent; }
 .delta-new  { color: var(--accent); background: var(--new-soft); }
 
@@ -293,14 +292,15 @@ ol, ul { list-style: none; margin: 0; padding: 0; }
 /* ---------- 1位の特別扱い（祭りの熱っぽさは少量） ---------- */
 .card-hero { border-bottom: 1px solid var(--line); background:
   linear-gradient(180deg, color-mix(in srgb, var(--accent-fill) 7%, transparent), transparent 70%); }
-.card-hero .card-link { padding: 11px 12px 12px; gap: 12px; }
-.card-hero .thumb { width: 158px; border-radius: var(--r); }
+/* 情報列の開始位置を通常行（12+30+10+112+10=174）と揃える: 12+152+10=174 */
+.card-hero .card-link { padding: 11px 12px 12px; gap: 10px; }
+.card-hero .thumb { width: 152px; border-radius: var(--r); }
 .card-hero .thumb.is-short::before { left: 6px; top: 6px; width: 13px; height: 18px; }
 .card-hero .rankcol { display: none; }
 .card-hero .hero-badge {
   display: inline-flex; align-items: center; gap: 4px;
   height: 18px; padding: 0 7px; border-radius: var(--r-pill);
-  background: linear-gradient(90deg, var(--accent-fill), var(--gold-fill));
+  background: linear-gradient(90deg, var(--accent-fill), var(--gold));
   color: var(--on-accent); font-size: 10px; font-weight: 900; letter-spacing: .06em; text-transform: uppercase;
 }
 .card-hero .hero-line { display: flex; align-items: center; gap: 6px; flex-wrap: wrap; }
@@ -317,7 +317,7 @@ ol, ul { list-style: none; margin: 0; padding: 0; }
   color: #fff; font-variant-numeric: tabular-nums;
   text-shadow: 0 1px 6px rgba(0,0,0,.6);
 }
-.card-hero .thumb::after {
+.card-hero .thumb:not(.thumb-fallback)::after {
   content: ""; position: absolute; inset: auto 0 0 0; height: 56%;
   background: linear-gradient(180deg, transparent, rgba(6,8,12,.5));
 }
@@ -336,12 +336,16 @@ ol, ul { list-style: none; margin: 0; padding: 0; }
 .ad-box {
   flex: 1 1 auto; display: flex; align-items: center; gap: 10px;
   border: 1px dashed var(--line-strong); border-radius: var(--r-sm);
-  padding: 9px 10px; color: var(--text-3); font-size: 12px; min-height: 56px;
+  padding: 9px 10px; color: var(--text-3); font-size: 12px; min-height: 74px;   /* 本文行と同じ 92px 行にする */
 }
 .ad-thumb { flex: none; width: 72px; aspect-ratio: 16/9; border-radius: 4px; background: var(--skel); }
 
 /* ---------- skeleton ---------- */
 .card-skel .card-link { pointer-events: none; }
+/* 読み込み後の行と同じ高さにする。違うと描画の瞬間にリストが跳ねる。 */
+.card-skel .info { min-height: 73px; }
+.card-skel.card-hero .sk-thumb { width: 152px; }
+.card-skel.card-hero .info { min-height: 100px; }
 .sk { background: var(--skel); border-radius: var(--r-sm); position: relative; overflow: hidden; }
 .sk::after {
   content: ""; position: absolute; inset: 0; transform: translateX(-100%);
@@ -430,8 +434,9 @@ ol, ul { list-style: none; margin: 0; padding: 0; }
 .tagrank { flex: none; width: 26px; text-align: center; font-size: 15px; font-weight: 800; color: var(--text-3); font-variant-numeric: tabular-nums; }
 .tagterm { flex: 1 1 auto; min-width: 0; font-size: 14.5px; font-weight: 700; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .tagbar { flex: none; width: 78px; height: 6px; border-radius: 3px; background: var(--bg-sunk); overflow: hidden; }
-.tagbar span { display: block; height: 100%; background: linear-gradient(90deg, var(--accent-fill), var(--gold-fill)); }
-.tagcount { flex: none; font-size: 11px; color: var(--text-3); width: 44px; text-align: right; font-variant-numeric: tabular-nums; }
+.tagbar span { display: block; height: 100%; background: linear-gradient(90deg, var(--accent-fill), var(--gold)); }
+.tagcount { flex: none; font-size: 11px; color: var(--text-3); min-width: 58px; text-align: right;
+  white-space: nowrap; font-variant-numeric: tabular-nums; }   /* EN の "12 videos" が入る幅 */
 
 /* ---------- map ---------- */
 .map-wrap { padding: 6px 10px 16px; }

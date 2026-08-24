@@ -271,7 +271,7 @@ function deltaNode(item) {
   return n;
 }
 
-function cardNode(item, { hero = false, why = null } = {}) {
+function cardNode(item, { hero = false, why = null, delta = true } = {}) {
   const li = el('li', hero ? 'card card-hero' : 'card');
   li.dataset.rank = item.rank;
   li.dataset.videoId = item.videoId;
@@ -284,7 +284,9 @@ function cardNode(item, { hero = false, why = null } = {}) {
 
   if (!hero) {
     const col = el('span', 'rankcol');
-    col.append(el('span', 'rank', String(item.rank)), deltaNode(item));
+    col.append(el('span', 'rank', String(item.rank)));
+    // 自分タブには「前回の順位」が無い。出すと全行 NEW になり、変動の合図が意味を失う。
+    if (delta) col.append(deltaNode(item));
     a.append(col);
   }
 
@@ -303,7 +305,8 @@ function cardNode(item, { hero = false, why = null } = {}) {
   const info = el('span', 'info');
   if (hero) {
     const line = el('span', 'hero-line');
-    line.append(el('span', 'hero-badge', t('card.hero')), deltaNode(item));
+    line.append(el('span', 'hero-badge', t('card.hero')));
+    if (delta) line.append(deltaNode(item));
     info.append(line);
   }
   info.append(el('span', 'title', item.title));
@@ -353,13 +356,14 @@ function adNode(slot) {
   return li;
 }
 
-function skeletonList(target, n = 8) {
+function skeletonList(target, n = 8, { hero = false } = {}) {
   unobserveCards(target);
   target.replaceChildren();
   target.setAttribute('aria-busy', 'true');
   target.setAttribute('aria-label', t('state.loading'));
   for (let i = 0; i < n; i++) {
-    const li = el('li', 'card card-skel');
+    // 読み込み後の姿と同じ形にする。違うと描画の瞬間にリストが跳ねる。
+    const li = el('li', hero && i === 0 ? 'card card-skel card-hero' : 'card card-skel');
     const a = el('div', 'card-link');
     const col = el('span', 'rankcol'); col.append(el('span', 'sk sk-rank'));
     const th = el('span', 'sk sk-thumb');
@@ -473,6 +477,13 @@ function syncAxes() {
     const on = usable && b.dataset.category === state.category;
     b.classList.toggle('is-active', on); b.setAttribute('aria-selected', String(on));
   });
+  // 選択中のチップが横スクロールの外に居ると、どこに居るのか分からないまま
+  // リストだけ入れ替わる（カテゴリはスワイプ軸にもなる）。必ず見える位置へ寄せる。
+  for (const sel of ['#axis-periods', '#axis-categories']) {
+    const active = $(`${sel} .chip.is-active`);
+    active?.scrollIntoView({ inline: 'center', block: 'nearest',
+      behavior: state.reduceMotion ? 'auto' : 'smooth' });
+  }
   const showMetric = growthAvailable('24h') || growthAvailable(state.period);
   $('#axis-metric-row').hidden = !showMetric;
   $$('#axis-metric button').forEach(b => {
@@ -509,7 +520,7 @@ function renderStatus(data) {
 async function renderEveryone() {
   const list = $('#list');
   const my = ++state.reqId;
-  skeletonList(list, 8);
+  skeletonList(list, 8, { hero: true });
   renderStatus(null);
   let data = null;
   try {
@@ -525,14 +536,14 @@ async function renderEveryone() {
   renderStatus(data);
 }
 
-function paintRanking(list, items, { hero = false, why = false } = {}) {
+function paintRanking(list, items, { hero = false, why = false, delta = true } = {}) {
   unobserveCards(list);
   list.replaceChildren();
   endLoading(list);
   if (!items || !items.length) { list.append(stateNode('empty')); return; }
   let sinceAd = 0, slot = 0;
   items.forEach((item, i) => {
-    list.append(cardNode(item, { hero: hero && i === 0, why: why ? item.__why : null }));
+    list.append(cardNode(item, { hero: hero && i === 0, why: why ? item.__why : null, delta }));
     sinceAd++;
     if (sinceAd === AD_EVERY && i !== items.length - 1) { list.append(adNode(++slot)); sinceAd = 0; }
   });
@@ -583,7 +594,7 @@ async function renderMy() {
   }));
   cand.sort((a, b) => b.__score - a.__score);
   const top = cand.slice(0, 100).map((it, i) => ({ ...it, rank: i + 1, prevRank: null, delta: null }));
-  paintRanking(list, top, { hero: false, why: true });
+  paintRanking(list, top, { hero: false, why: true, delta: false });
   if (!$('#my-inspector').hidden) renderInspector();
 }
 
@@ -677,6 +688,7 @@ async function renderTags() {
     const li = el('li', 'tagrow');
     li.append(el('span', 'tagrank', String(it.rank)));
     li.append(el('span', 'tagterm', it.term));
+    if (it.delta != null) li.append(deltaNode({ prevRank: it.rank + it.delta, rank: it.rank, delta: it.delta }));
     const bar = el('span', 'tagbar'); const fill = el('span');
     fill.style.width = `${clamp((it.score / max) * 100, 6, 100)}%`;
     bar.append(fill); li.append(bar);

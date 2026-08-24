@@ -89,7 +89,7 @@
   "state.offline": "Offline — showing the last saved ranking",
   "state.stale": "Updated {t} · refreshing soon",
   "state.updated": "Updated {t}",
-  "state.degraded": "Update frequency is temporarily reduced to stay within the API quota.",
+  "state.degraded": "Slower updates (API quota)",
 
   "my.title": "Your ranking",
   "my.subtitle": "Built on this device from what you look at and open. Nothing leaves your phone.",
