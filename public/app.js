@@ -6,7 +6,7 @@
 
 import {
   COUNTRIES, SECTIONS, PERIODS, CATEGORIES, LANGUAGES, DEFAULT_LANG,
-  MAP_COUNTRIES, AD_EVERY, RETENTION, LEARNING, datasetPath,
+  MAP_COUNTRIES, AD_EVERY, RETENTION, LEARNING, TAPS, datasetPath,
 } from './js/config.js';
 
 /* ---------------------------------------------------------------- helpers */
@@ -251,6 +251,49 @@ const Learn = {
   isEmpty() { const s = this.snapshot(); return !s.terms.length && !s.channels.length; },
 };
 
+/* ------------------------------------- v3 匿名タップ集計（ORDER §2-15） */
+/*
+ * 「このアプリ経由で今日◯回飛んだ」独自指標。送るのは 国コード＋動画ID だけで、
+ * 個人識別情報は送らない・持たない。TAPS.endpoint が空なら送信もフェッチもしない。
+ * `?taps=mock` はネットワークに一切出ない表示専用サンプル（開発・E2E・監査用）。
+ * 集計は「人」ではなく「回」。匿名制約下では人数の一意化ができないため回数で表す。
+ */
+const Taps = {
+  mock: new URLSearchParams(location.search).get('taps') === 'mock',
+  endpoint: TAPS.endpoint,
+  enabled() { return this.mock || !!this.endpoint; },
+  send(videoId, country) {
+    if (!this.endpoint || this.mock) return;
+    try {
+      // content-type を付けない（既定 text/plain）= CORS の単純リクエストになり、
+      // プリフライト無しで 1 タップ = 1 リクエストで済む。サーバー側は本文だけを見る。
+      fetch(`${this.endpoint}/tap`, {
+        method: 'POST', mode: 'cors', keepalive: true,
+        body: JSON.stringify({ country, videoId }),
+      }).catch(() => {});
+    } catch { /* 集計が落ちても転送（本体機能）は妨げない */ }
+  },
+  _stats: null, _statsAt: 0,
+  async stats() {
+    if (this.mock) return this._mockStats();
+    if (!this.endpoint) return null;
+    if (this._stats && Date.now() - this._statsAt < TAPS.statsTtlMs) return this._stats;
+    try {
+      const res = await fetch(`${this.endpoint}/stats`, { mode: 'cors' });
+      if (!res.ok) return null;
+      const s = await res.json();
+      if (typeof s?.total !== 'number' || !s.countries || typeof s.countries !== 'object') return null;
+      this._stats = s; this._statsAt = Date.now();
+      return s;
+    } catch { return null; }
+  },
+  _mockStats() { // 決定論的（E2E が値を断言できる）。式を変えたら tests/e2e-taps.spec.js も直す
+    const countries = {}; let total = 0;
+    MAP_COUNTRIES.forEach((c, i) => { const n = ((i * 37) % 90) + 8; countries[c.code] = n; total += n; });
+    return { date: new Date().toISOString().slice(0, 10), total, countries };
+  },
+};
+
 /* --------------------------------------------------------------- card DOM */
 const catLabelOf = ytId => {
   const c = CATEGORIES.find(x => x.ytId === ytId);
@@ -317,7 +360,7 @@ function cardNode(item, { hero = false, why = null, delta = true } = {}) {
   if (why && why.length) info.append(el('span', 'why', t('my.matched', { reason: why.join(' · ') })));
   a.append(info);
 
-  a.addEventListener('click', () => Learn.record(item, 'open'));
+  a.addEventListener('click', () => { Learn.record(item, 'open'); Taps.send(item.videoId, state.country); });
   li.append(a);
   li.__item = item;
   return li;
@@ -723,7 +766,10 @@ async function renderMap() {
   box.style.color = 'var(--line-strong)';
   box.append(svg);
 
-  const data = await getJSON('data/map.json', { soft: true });
+  const [data, taps] = await Promise.all([
+    getJSON('data/map.json', { soft: true }),
+    Taps.stats(), // 無効時は即 null。地図の表示をブロックしない
+  ]);
   if (my !== state.reqId) return;
   if (!data) {
     wrap.append(el('p', 'state-body', t('map.empty')));
@@ -732,7 +778,10 @@ async function renderMap() {
   const known = new Set(COUNTRIES.map(c => c.code));
   const dive = it => {
     if (known.has(it.country)) go({ mode: 'everyone', country: it.country, period: '24h' });
-    else window.open(`https://www.youtube.com/shorts/${it.videoId}`.replace('/shorts/', it.isShort ? '/shorts/' : '/watch?v='), '_blank', 'noopener');
+    else {
+      Taps.send(it.videoId, it.country);
+      window.open(`https://www.youtube.com/shorts/${it.videoId}`.replace('/shorts/', it.isShort ? '/shorts/' : '/watch?v='), '_blank', 'noopener');
+    }
   };
   const label = it => known.has(it.country)
     ? t('map.dive', { country: t('country.' + it.country) })
@@ -751,10 +800,21 @@ async function renderMap() {
     const img = new Image();
     img.src = thumbUrl(it.videoId); img.alt = ''; img.loading = 'lazy';
     b.append(img);
+    const tapN = taps?.countries?.[it.country] || 0;
+    if (tapN > 0) {
+      b.classList.add('has-taps');
+      b.append(el('span', 'pin-taps', fmtCount(tapN)));
+    }
     b.addEventListener('click', () => dive(it));
     box.append(b);
   });
   wrap.append(box);
+  // v3 独自指標: 「このアプリから今日◯回飛んだ」。統計が取れないときは行ごと出さない
+  if (taps && taps.total > 0) {
+    const line = el('p', 'map-residents');
+    line.append(el('span', 'residents-dot'), el('span', null, t('taps.today', { n: fmtCount(taps.total) })));
+    wrap.append(line);
+  }
   wrap.append(el('p', 'map-legend', t('map.subtitle')));
 
   // 44px を満たす主たる導線（地図はあくまで俯瞰）
@@ -774,6 +834,8 @@ async function renderMap() {
       info.append(el('span', 'title', it.title));
       const meta = el('span', 'meta');
       meta.append(el('b', 'views', fmtViews(it.viewCount)));
+      const rowTaps = taps?.countries?.[it.country] || 0;
+      if (rowTaps > 0) meta.append(el('span', 'dot', '·'), el('span', 'mc-taps', t('taps.count', { n: fmtCount(rowTaps) })));
       if (known.has(it.country)) meta.append(el('span', 'dot', '·'), el('span', null, t('map.dive', { country: it.country })));
       info.append(meta);
       b.append(th, info);

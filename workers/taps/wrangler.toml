@@ -1,0 +1,13 @@
+# trendzap-taps — v3 匿名タップ集計（ORDER §2-15）。デプロイ手順は NEEDS_HUMAN.md ゲートB。
+name = "trendzap-taps"
+main = "src/index.js"
+compatibility_date = "2026-08-01"
+
+# ゲートB: `npx wrangler kv namespace create TAPS` の出力の id をここに貼る
+[[kv_namespaces]]
+binding = "TAPS"
+id = "REPLACE_WITH_KV_NAMESPACE_ID"
+
+[vars]
+# 公開後は GitHub Pages のオリジンに絞ってよい（例: "https://<user>.github.io"）
+ALLOWED_ORIGINS = "*"

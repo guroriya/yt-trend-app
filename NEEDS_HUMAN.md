@@ -102,6 +102,46 @@ ORDER §4 の理想は「24時間ランキングは毎時更新」ですが、�
 
 ---
 
-## ゲートB（P5 で必要 / まだ着手不要）— Cloudflare
+## ゲートB（コードは準備済み / 急がない・v1 公開後でOK / 所要 15分）— Cloudflare
+
+v3「匿名タップ集計」（今日このアプリから何回飛んだか）のサーバーは `workers/taps/` に
+**実装済み**です。あとはデプロイだけ。ゲート0（Node 導入）が済んでいる前提で:
+
+1. https://dash.cloudflare.com/sign-up で無料アカウントを作る（メール認証まで）
+2. PowerShell で（パスはスラッシュ区切りでそのまま通ります）:
+
+```
+cd C:/Users/Owner/yt-trend-app/workers/taps ; npx wrangler login
+```
+
+→ ブラウザが開くので「Allow」。続けて KV を作成:
+
+```
+npx wrangler kv namespace create TAPS
+```
+
+3. 出力に `id = "xxxxxxxx..."` が出るので、`workers/taps/wrangler.toml` の
+   `REPLACE_WITH_KV_NAMESPACE_ID` をその id に書き換えて保存
+4. デプロイ:
+
+```
+npx wrangler deploy
+```
+
+5. 出力される URL（`https://trendzap-taps.〜.workers.dev`）をコピーして、
+   `public/js/config.js` の `TAPS.endpoint: ''` に貼る（例: `endpoint: 'https://trendzap-taps.xxx.workers.dev'`）→ commit & push
+6. 動作確認（P5 検収 = curl でカウント → 表示に反映）:
+
+```
+curl -X POST https://trendzap-taps.あなたのURL.workers.dev/tap -H "content-type: application/json" -d "{\"country\":\"JP\",\"videoId\":\"dQw4w9WgXcQ\"}" ; curl https://trendzap-taps.あなたのURL.workers.dev/stats
+```
+
+→ `{"date":"…","total":1,"countries":{"JP":1}}` のように返り、アプリの「世界」タブに
+「今日、このアプリから 1 回 YouTube へ飛びました」が出れば完了です。
+
+> 無料枠の注意: KV の書き込みは 1日 1,000 回まで（=1日1,000タップまで数えられます）。
+> 超えた分は数え落とすだけで、アプリ本体には影響しません。
+
 ## ゲートC（P6 で必要 / まだ着手不要）— Google Play Console（$25）／AdMob・AdSense 申請
+　→ 申請に使う文面はすべて `docs/SUBMISSIONS.md` に用意してあります（提出操作のみお願いします）
 ## ゲートD（随時・任意）— 見た目のスクショ指摘。気になった画面を撮って渡してください。憲章より優先して直します

@@ -123,6 +123,8 @@
   "map.subtitle": "いま各国で1位の動画。タップでその国のランキングへ。",
   "map.dive": "{country}のランキングへ",
   "map.empty": "地図データはまだ準備中です。",
+  "taps.today": "今日、このアプリから {n} 回 YouTube へ飛びました",
+  "taps.count": "今日 {n} 回",
 
   "settings.title": "設定",
   "settings.language": "言語",

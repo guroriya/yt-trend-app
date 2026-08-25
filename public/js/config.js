@@ -104,6 +104,16 @@ export const RETENTION = {
   growthPeriods: ['24h', 'week', 'month'], // 年間・全期間は投稿日ベースのまま
 };
 
+/**
+ * v3 匿名タップ集計（ORDER §2-15）。endpoint が空の間は完全に無効（送信も取得もしない）。
+ * ゲートB（NEEDS_HUMAN.md）で workers/taps をデプロイしたら、その URL をここに入れるだけ。
+ * 送るのは 国コード＋動画ID のみ。個人識別情報は仕組み上存在しない（docs/SCHEMA.md §タップ集計）。
+ */
+export const TAPS = {
+  endpoint: '',        // 例: 'https://trendzap-taps.<account>.workers.dev'
+  statsTtlMs: 60_000,  // 表示用統計のメモリキャッシュ
+};
+
 /** v2 端末内学習（ORDER §2-11）。外部送信は一切しない。 */
 export const LEARNING = {
   storageKey: 'ytta.my.v1',
@@ -115,7 +125,7 @@ export const LEARNING = {
 
 export const CONFIG = {
   COUNTRIES, SECTIONS, PERIODS, CATEGORIES, LANGUAGES, DEFAULT_LANG,
-  MAP_COUNTRIES, AD_EVERY, QUOTA, SCHEDULE, RETENTION, LEARNING,
+  MAP_COUNTRIES, AD_EVERY, QUOTA, SCHEDULE, RETENTION, LEARNING, TAPS,
 };
 export default CONFIG;
 

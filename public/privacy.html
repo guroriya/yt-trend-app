@@ -78,17 +78,26 @@
     it ships, and consent will be requested where the law requires it.</li>
   </ul>
 
-  <h2>5. Children</h2>
+  <h2>5. Anonymous zap counter (only when enabled)</h2>
+  <p>The app can show one community metric: "how many times people zapped to YouTube from this
+  app today", including a per-country breakdown on the World tab. When this feature is enabled,
+  tapping a video sends exactly two values to our counter server (Cloudflare Workers): a country
+  code and the video's public ID. They are added to an anonymous daily counter. No IP address,
+  no user agent, no cookie, and no identifier of any kind is stored, so taps cannot be linked to
+  you or to each other. Daily counters are deleted automatically after 31 days. While the feature
+  is disabled (the current default), nothing is sent at all.</p>
+
+  <h2>6. Children</h2>
   <p>The app is not directed at children under 13 and does not knowingly collect data from them.</p>
 
-  <h2>6. Your choices</h2>
+  <h2>7. Your choices</h2>
   <ul>
     <li>Turn learning off with the "Learning" switch in the "You" tab.</li>
     <li>Erase everything with "Erase everything learned".</li>
     <li>Clearing your browser's site data removes every trace the app keeps.</li>
   </ul>
 
-  <h2>7. Contact</h2>
+  <h2>8. Contact</h2>
   <p>Questions about this policy can be raised as an issue in the project's public repository.</p>
 
   <hr>
@@ -136,17 +145,26 @@
       将来的に導入する場合は、導入前に本ポリシーを更新し、法令が求める場合は同意取得を行います。</li>
     </ul>
 
-    <h2>5. 子どもについて</h2>
+    <h2>5. 匿名タップカウンタ（有効化されている場合のみ）</h2>
+    <p>本アプリは「今日このアプリから YouTube へ何回飛んだか」というコミュニティ指標を、
+    世界タブの国別内訳とともに表示できます。この機能が有効な場合、動画をタップすると
+    集計サーバー（Cloudflare Workers）へ送られるのは 国コード と 動画の公開ID の2つだけで、
+    匿名の日次カウンタに加算されます。IP アドレス・ユーザーエージェント・Cookie・
+    その他いかなる識別子も保存しないため、タップをあなたに（またはタップ同士を）結び付ける
+    ことはできません。日次カウンタは31日で自動削除されます。機能が無効の間（現在の既定）は、
+    何も送信されません。</p>
+
+    <h2>6. 子どもについて</h2>
     <p>本アプリは13歳未満を対象としておらず、意図的に情報を収集することはありません。</p>
 
-    <h2>6. 利用者の選択肢</h2>
+    <h2>7. 利用者の選択肢</h2>
     <ul>
       <li>「自分」タブの「学習」スイッチで学習を停止できます。</li>
       <li>「学習をすべて消す」で全消去できます。</li>
       <li>ブラウザのサイトデータを削除すれば、本アプリが保持する情報は残らず消えます。</li>
     </ul>
 
-    <h2>7. お問い合わせ</h2>
+    <h2>8. お問い合わせ</h2>
     <p>本ポリシーに関するお問い合わせは、公開リポジトリの Issue にてお願いします。</p>
   </div>
 

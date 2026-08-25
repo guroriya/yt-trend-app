@@ -171,3 +171,44 @@ URL 規約が安定しているため（DECISIONS.md 2026-08-25）。
 - 半減期 14 日（`LEARNING.halfLifeDays`）で読み出し時に減衰させる。
 - **一覧で見える・個別に消せる・重みをいじれる**（ORDER §2-11）ことが仕様の核。
 - `enabled:false` で学習停止。`clear()` で全消去。**送信先は存在しない**。
+
+---
+
+## 7. タップ集計 API（v3 / ORDER §2-15・匿名カウンタ）
+
+実体は `workers/taps/`（Cloudflare Workers + KV）。フロントの接点は `public/js/config.js` の
+`TAPS.endpoint` だけで、**空文字の間は送信もフェッチも一切起きない**。
+
+### POST `{endpoint}/tap`
+
+```jsonc
+{ "country": "JP", "videoId": "dQw4w9WgXcQ" }   // 送るのはこの2値のみ
+```
+
+- `country` は大文字2桁（形のみ検証）。`videoId` は 11 文字の YouTube ID の形。
+- 成功は `204`。検証落ちは `400`。本文 256 バイト超は `413`。
+- `content-type` は見ない（フロントは text/plain で送る = CORS 単純リクエスト。本文の JSON だけが契約）。
+- サーバーは **UTC の当日** のカウンタに +1 する（クライアントの時計は使わない）。
+- IP・User-Agent・Cookie・識別子は保存しない（ログにも出さない）。
+
+### GET `{endpoint}/stats?date=YYYY-MM-DD`（date 省略で UTC 当日）
+
+```jsonc
+{ "date": "2026-08-25", "total": 1234, "countries": { "JP": 800, "US": 434 } }
+```
+
+- 動画別の内訳は外に出さない（表示に使うのは合計と国別だけ）。
+- `cache-control: max-age=60`。フロント側も `TAPS.statsTtlMs` でメモキャッシュする。
+
+### 保存形（KV・キー `day:{UTC日付}`・TTL 31日 = ORDER §8 準拠）
+
+```jsonc
+{ "date": "2026-08-25", "total": 1234,
+  "countries": { "JP": 800 }, "videos": { "dQw4w9WgXcQ": 3 } }
+```
+
+- KV の read-modify-write は同時実行で加算を取りこぼすことがある。**近似値として許容**
+  （独自指標であり課金・保証の根拠に使わない）。正確さが要る段階になったら Durable Objects へ。
+- `videos` は 2000 件を超えたら上位 1000 件に間引く（値の肥大防止）。
+- 集計単位は「人」ではなく「回」。匿名制約（ORDER §2-15）の下では人数の一意化は不可能で、
+  UI の文言も「◯回」で統一している（`taps.today` / `taps.count`）。
