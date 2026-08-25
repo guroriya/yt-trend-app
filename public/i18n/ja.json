@@ -147,6 +147,8 @@
   "find.none.body": "「{q}」は集めた範囲にありませんでした。YouTube本体で探せます。",
   "find.where": "{period}・{section} {rank}位",
   "find.loading": "検索中…",
+  "state.pending.title": "まだ集計されていません",
+  "state.pending.body": "このランキングはまだ収集できていません。取得は1日の API 予算内で少しずつ進むので、新しい国や期間は数日かけて埋まります。",
 
   "fav.title": "よく見るランキング",
   "fav.pin": "このランキングをピン留め",

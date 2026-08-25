@@ -253,3 +253,75 @@ test.describe('schema.mjs — データ契約', () => {
     expect(QUOTA.resetTimeZone).toBe('America/Los_Angeles');
   });
 });
+
+/* ------------------------------------------------------ 収集の進み方（飢餓しないこと）
+ * 2026-08-25 のレビューで、1回の費用が1日の予算を超えるジョブ（カテゴリ×週月＝8,080 units）が
+ * 「毎回先頭からやり直す」「完走しないので毎日 due で居座る」の合わせ技で、
+ * 年間・全期間のデータを永久に取れなくすることが判明した。対策は2つ:
+ *   (a) collect.mjs の再開カーソル（途中で予算切れしたら次回はそこから）
+ *   (b) collect.mjs のエイジング（待たされた度合いで順番を決める）
+ * ここでは planner の値を使って、その2つがある場合と無い場合を突き合わせる。
+ */
+test.describe('収集スケジュールの飢餓耐性', () => {
+  const HARD_STOP = Math.floor(QUOTA.dailyUnits * 0.95);
+
+  /** 60日ぶんの実行をなぞって「一度でも取れたデータセット」を返す。 */
+  function simulate({ aging, cursorResume, days = 60 }) {
+    const plan = planSchedule({ dailyUnits: QUOTA.dailyUnits });
+    const jobs = plan.jobs.filter(j => !j.skipped && j.costPerRun > 0 && j.id !== 'map');
+    const cursor = {}, lastRun = {}, written = new Set(), spentByDay = {};
+    const overdue = (j, hour) => (lastRun[j.id] === undefined
+      ? Infinity : (hour - lastRun[j.id]) / Math.max(1, j.everyHours));
+
+    for (let hour = 0; hour < days * 24; hour++) {
+      const day = Math.floor(hour / 24);
+      spentByDay[day] = spentByDay[day] || 0;
+      const due = jobs.filter(j => lastRun[j.id] === undefined || (hour - lastRun[j.id]) >= j.everyHours);
+      if (aging) due.sort((a, b) => (overdue(b, hour) - overdue(a, hour)) || (a.priority - b.priority));
+      else due.sort((a, b) => a.priority - b.priority);
+
+      for (const j of due) {
+        const lists = listsOfJob(j.id);
+        const start = cursorResume ? (cursor[j.id] || 0) : 0;
+        let walked = true;
+        for (let i = 0; i < lists.length; i++) {
+          const idx = (start + i) % lists.length;
+          const cost = costOfList(lists[idx].size);
+          if (spentByDay[day] + cost > HARD_STOP) { cursor[j.id] = idx; walked = false; break; }
+          spentByDay[day] += cost;
+          const l = lists[idx];
+          written.add(`${l.country}-${l.section}-${l.period}-${l.category}`);
+        }
+        if (walked) { delete cursor[j.id]; lastRun[j.id] = hour; }
+      }
+    }
+    return written;
+  }
+
+  const allLists = () => new Set(
+    ['top24h', 'weekmonth', 'categories', 'catweekmonth', 'yearall', 'catyearall']
+      .flatMap(listsOfJob)
+      .map(l => `${l.country}-${l.section}-${l.period}-${l.category}`));
+
+  test('カーソル＋エイジングがあれば 60日で全データセットが1度は取れる', () => {
+    const all = allLists();
+    const got = simulate({ aging: true, cursorResume: true });
+    const missing = [...all].filter(k => !got.has(k));
+    expect(missing, `取れなかった: ${missing.slice(0, 5).join(', ')}`).toHaveLength(0);
+  });
+
+  test('どちらかが欠けると年間・全期間が飢餓になる（対策が効いていることの裏取り）', () => {
+    const all = allLists();
+    const noCursor = simulate({ aging: true, cursorResume: false });
+    const noAging = simulate({ aging: false, cursorResume: true });
+    // 少なくとも一方の欠落では取りこぼしが出る（両方の対策に意味がある）
+    const missA = [...all].filter(k => !noCursor.has(k));
+    const missB = [...all].filter(k => !noAging.has(k));
+    expect(missA.length + missB.length).toBeGreaterThan(0);
+  });
+
+  test('1回の費用が1日のハード停止を超えるジョブがあることを明示（カーソルが必須な理由）', () => {
+    const heavy = ['catweekmonth', 'catyearall'].map(id => costOfJob(id));
+    expect(Math.max(...heavy)).toBeGreaterThan(HARD_STOP - costOfJob('top24h'));
+  });
+});

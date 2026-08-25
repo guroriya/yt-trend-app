@@ -55,7 +55,12 @@ let budget = await readJSON(BUDGET_FILE, null);
 if (!budget || budget.date !== today) budget = { date: today, spent: 0, byJob: {}, byEndpoint: {} };
 
 const shortsCache = (await readJSON(SHORTS_FILE, {})) || {};
-const lastRun = (await readJSON(LASTRUN_FILE, {})) || {};
+const lastRunFile = (await readJSON(LASTRUN_FILE, {})) || {};
+/* lastRun は「ジョブを最後に完走した時刻」。cursor は「途中で予算切れしたジョブの再開位置」。
+   1回の費用が1日の予算を超えるジョブ（例: カテゴリ×週月＝8,080 units）は、
+   カーソルが無いと毎回先頭からやり直して末尾に永久に到達しない（2026-08-25 レビュー指摘）。 */
+const lastRun = lastRunFile.lastRun || lastRunFile;   // 旧形式（フラットな {jobId: ISO}）も読める
+const cursor = lastRunFile.cursor || {};
 
 const HARD_STOP = Math.floor(QUOTA.dailyUnits * 0.95);
 const spentAtStart = budget.spent;
@@ -73,7 +78,7 @@ async function persistState() {
   try {
     await writeJSON(BUDGET_FILE, budget, { pretty: true });
     await writeJSON(SHORTS_FILE, shortsCache);
-    await writeJSON(LASTRUN_FILE, lastRun, { pretty: true });
+    await writeJSON(LASTRUN_FILE, { lastRun, cursor }, { pretty: true });
   } catch (err) {
     log.warn(`could not persist state: ${err.message}`);
   }
@@ -95,6 +100,18 @@ const dueJobs = plan.jobs.filter(j => {
   if (args.force) return true;
   return isDue(j, lastRun[j.id], now);
 });
+
+/* 実行順は priority 固定ではなく「待たされた度合い」で決める（エイジング）。
+   固定順だと、重いジョブ（カテゴリ×週月＝8,080 units）が毎日の残り予算を食い尽くし、
+   その下にいる年間・全期間が永久に順番を得られない（60日シミュレーションで実測）。
+   overdue = 経過時間 / 予定間隔。1.0 なら定刻、4.0 なら4周期ぶん待たされている。 */
+const overdueOf = j => {
+  const last = lastRun[j.id];
+  if (!last) return Infinity;                       // 一度も取れていないものが最優先
+  const elapsedH = (now.getTime() - new Date(last).getTime()) / 3600e3;
+  return elapsedH / Math.max(1, j.everyHours);
+};
+dueJobs.sort((a, b) => (overdueOf(b) - overdueOf(a)) || (a.priority - b.priority));
 
 log.step('jobs');
 log.info(`spent today: ${budget.spent} / ${QUOTA.dailyUnits} units (hard stop ${HARD_STOP})`);
@@ -214,10 +231,25 @@ const written = [];
 async function runListJob(jobId) {
   currentJob = jobId;
   const lists = listsOfJob(jobId);
-  log.step(`${jobId} — ${lists.length} list(s)`);
-  let complete = true;
-  for (const desc of lists) {
-    if (!canSpend(QUOTA.costSearch)) { log.warn('hard stop reached — stopping this job'); complete = false; break; }
+  // 前回この番号で力尽きた続きから始める。1周ぶんの本数を超えないよう常に丸める。
+  const start = Math.min(Math.max(0, cursor[jobId] | 0), Math.max(0, lists.length - 1));
+  const order = [...lists.slice(start), ...lists.slice(0, start)];
+  log.step(`${jobId} — ${lists.length} list(s)${start ? ` (resuming at #${start + 1})` : ''}`);
+  let complete = true;      // 1周を最後まで歩き、かつ全部書けた
+  let walkedAll = true;     // 1周を最後まで歩いた（0件で飛ばしたぶんは含む）
+  let done = 0;
+  const parkAt = i => { cursor[jobId] = (start + i) % lists.length; };
+  try {
+  for (const desc of order) {
+    if (!canSpend(QUOTA.costSearch)) {
+      // 次回はここから。予算を使い切っても必ず前へ進む。
+      parkAt(done);
+      log.warn(`hard stop reached — stopping this job (resume at #${cursor[jobId] + 1}/${lists.length})`);
+      complete = false;
+      walkedAll = false;
+      break;
+    }
+    done++;
     const id = datasetId(desc.country, desc.section, desc.period, desc.category);
     try {
       const raw = await collectList(desc, { adaptive: jobId === 'top24h' });
@@ -242,6 +274,13 @@ async function runListJob(jobId) {
       complete = false;
     }
   }
+  } catch (err) {
+    // 割当ガードが途中で止めた場合。そのリストは書けていないので、次回はそこから retry する。
+    if (err instanceof QuotaExceededError) { parkAt(done - 1); walkedAll = false; }
+    throw err;
+  }
+  // 1周ぶん歩けたらカーソルを畳む（0件で飛ばした行があっても、位置としては先頭に戻ってよい）
+  if (walkedAll) delete cursor[jobId];
   return complete;
 }
 
@@ -276,7 +315,18 @@ async function runMapJob() {
       log.warn(`map ${mc.code}: ${err.message}`);
     }
   }
+  // 予算切れで数カ国しか取れなかったときに、公開中の全26カ国を細らせない。
+  // 足りないぶんは前回の内容で埋める（古い行が混じるほうが、地図が虫食いになるよりまし）。
   if (items.length) {
+    if (items.length < MAP_COUNTRIES.length) {
+      const prev = await readJSON(join(DATA_DIR, 'map.json'), null);
+      const have = new Set(items.map(i => i.country));
+      const kept = (prev?.items || []).filter(i => !have.has(i.country));
+      if (kept.length) {
+        log.warn(`map: ${items.length}/${MAP_COUNTRIES.length} countries fetched — keeping ${kept.length} from the previous file`);
+        items.push(...kept);
+      }
+    }
     await writeMap({ items, generatedAt: nowISO });
     log.done(`map: ${items.length} countries`);
   }
@@ -288,11 +338,16 @@ async function runTagsJob() {
   log.step('tags — 0 units');
   for (const c of COUNTRIES) {
     const files = (await listDir(DATA_DIR)).filter(f => f.startsWith(`${c.code}-`) && f.endsWith('.json'));
-    const items = [];
+    // 同じ動画が期間・カテゴリをまたいで何本ものリストに載る。素朴に連結すると
+    // 露出の多い動画の語だけが最大10倍に効いてしまう（カテゴリ全期間化で悪化）。
+    // videoId で1本にまとめてから数える。
+    const uniq = new Map();
     for (const f of files) {
       const d = await readJSON(join(DATA_DIR, f), null);
-      if (d?.items) items.push(...d.items);
+      if (!d?.items) continue;
+      for (const it of d.items) if (!uniq.has(it.videoId)) uniq.set(it.videoId, it);
     }
+    const items = [...uniq.values()];
     if (!items.length) continue;
     const prev = await readJSON(join(DATA_DIR, `tags-${c.code}.json`), null);
     const prevRanks = new Map((prev?.items || []).map(x => [x.term, x.rank]));

@@ -8,7 +8,7 @@
 import { test, expect } from '@playwright/test';
 import {
   COUNTRIES, SECTIONS, PERIODS, I18N,
-  gotoApp, waitForList, everyoneHash, tagsHash, readDataset,
+  gotoApp, waitForList, everyoneHash, tagsHash, readDataset, readIndexJSON,
 } from './helpers.js';
 
 test.use({ serviceWorkers: 'block' });
@@ -43,7 +43,7 @@ test.describe('ランキング内検索', () => {
     await waitForList(page);
     await page.locator('#q').fill('game');
 
-    const link = page.locator('#q-yt');
+    const link = page.locator('#statusbar .q-yt');   // 入力欄を潰さないようステータスバーに置いている
     await expect(link).toBeVisible();
     const href = await link.getAttribute('href');
     expect(href).toContain('youtube.com/results?search_query=game');
@@ -164,5 +164,57 @@ test.describe('よく見るランキング', () => {
     const stored = await page.evaluate(() => localStorage.getItem('ytta.freq.v1'));
     expect(stored).toBeTruthy();
     expect(JSON.parse(stored).pins.length).toBeGreaterThan(0);
+  });
+});
+
+/* ------------------------------ 4. 収集がまだ届いていない軸の扱い（2026-08-25 レビュー） */
+
+test.describe('未収集データの扱い', () => {
+  /** index.json を「JP-video-24h-all しか無い」状態に差し替えて配る。 */
+  async function routeThinIndex(page) {
+    const idx = readIndexJSON();
+    await page.route('**/data/index.json', route => route.fulfill({
+      status: 200,
+      contentType: 'application/json',
+      body: JSON.stringify({ ...idx, datasets: { 'JP-video-24h-all': idx.datasets['JP-video-24h-all'] } }),
+    }));
+  }
+
+  test('データのある軸だけがチップに出る（押せない軸を見せない）', async ({ page }) => {
+    await routeThinIndex(page);
+    await gotoApp(page, everyoneHash({ country: 'JP', section: 'video', period: '24h' }));
+    await waitForList(page);
+
+    const visible = page.locator('#axis-periods .chip:not([hidden])');
+    await expect(visible).toHaveCount(1);
+    await expect(page.locator('#axis-categories .chip:not([hidden])')).toHaveCount(1);
+    await expect(page.locator('#axis-sections button:not([hidden])')).toHaveCount(1);
+  });
+
+  test('未収集の軸へ直リンクしても、ある軸へ寄せて表示する（404 のエラーを見せない）', async ({ page }) => {
+    await routeThinIndex(page);
+    await gotoApp(page, everyoneHash({ country: 'JP', section: 'shorts', period: 'year' }));
+    await waitForList(page);
+
+    // 引き戻された結果、必ずデータのある組み合わせになっている
+    await expect(page).toHaveURL(/\/JP\/video\/24h\/all\/published$/);
+    await expect(page.locator('#list .state-title')).toHaveCount(0);
+  });
+
+  test('データが本当に無いときは「集計中」であって通信エラーではない', async ({ page }) => {
+    await routeThinIndex(page);
+    // ファイル自体を 404 にする（index には載っているが取れない ＝ 本当のエラー経路と区別する）
+    await page.route('**/data/JP-video-24h-all.json', route => route.fulfill({ status: 404, body: '' }));
+    await gotoApp(page, everyoneHash({ country: 'JP', section: 'video', period: '24h' }));
+    await expect(page.locator('#list .state-title')).toHaveText(I18N.en['state.error.title']);
+
+    // index に載っていない軸なら「集計中」（再読み込みボタンを出さない）
+    await page.evaluate(() => {
+      const st = window.__trendzap.state;
+      st.index = { ...st.index, datasets: {} };
+    });
+    await page.evaluate(() => window.__trendzap.go({ period: '24h' }));
+    await expect(page.locator('#list .state-title')).toHaveText(I18N.en['state.pending.title']);
+    await expect(page.locator('#list .state .btn')).toHaveCount(0);
   });
 });

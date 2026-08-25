@@ -147,6 +147,8 @@
   "find.none.body": "“{q}” is not in what we collected. Try YouTube itself.",
   "find.where": "{period} · {section} #{rank}",
   "find.loading": "Searching…",
+  "state.pending.title": "Not collected yet",
+  "state.pending.body": "This ranking has not been gathered yet. Collection runs within a daily API budget, so new countries and periods fill in over the next few days.",
 
   "fav.title": "Your usual rankings",
   "fav.pin": "Pin this ranking",

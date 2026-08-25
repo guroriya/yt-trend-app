@@ -264,10 +264,13 @@ def main():
                                       "count": len(data["items"]), "stale": False}
                     written += 1
 
-    # 世界地図
+    # 世界地図（collect.mjs runMapJob と同じ規則: 既に使った動画は次点へ譲る）
     map_items = []
+    used_ids = set()
     for mc in map_countries:
-        top = make_list(mc["code"], "video", "24h", "all", 1, 1)["items"][0]
+        cands = make_list(mc["code"], "video", "24h", "all", 5, 1)["items"]
+        top = next((v for v in cands if v["videoId"] not in used_ids), cands[0])
+        used_ids.add(top["videoId"])
         map_items.append({
             "country": mc["code"], "lat": mc["lat"], "lon": mc["lon"],
             "videoId": top["videoId"], "title": top["title"],

@@ -41,7 +41,8 @@
     <span class="brand-name" data-i18n="app.name">TrendZap</span>
   </div>
   <div class="appbar-actions">
-    <button type="button" id="btn-country" class="iconbtn iconbtn-country" aria-haspopup="listbox">
+    <!-- 4カ国を順に巡回するボタン。メニューは開かないので haspopup は付けない -->
+    <button type="button" id="btn-country" class="iconbtn iconbtn-country">
       <span class="flag" id="country-flag" aria-hidden="true">🇯🇵</span><span class="country-code" id="country-code">JP</span>
     </button>
     <button type="button" id="btn-lang" class="iconbtn" data-i18n-aria="a11y.toggleLang" aria-label="Switch language"><span id="lang-code">EN</span></button>
@@ -78,7 +79,6 @@
       <input type="search" id="q" autocomplete="off" enterkeyhint="search"
              data-i18n-placeholder="search.placeholder" data-i18n-aria="search.aria">
       <button type="button" id="q-clear" class="q-clear" data-i18n-aria="search.clear" hidden>✕</button>
-      <a id="q-yt" class="btn btn-ghost btn-sm q-yt" target="_blank" rel="noopener noreferrer" hidden></a>
       <span id="favstar-slot"></span>
     </div>
     <!-- よく見るランキング（端末内のみ・自動＋手動ピン）。無い時は行ごと出さない -->

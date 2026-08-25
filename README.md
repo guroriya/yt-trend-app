@@ -92,7 +92,7 @@ npm run collect                       # planner が決めた実行すべきジ�
 npm run validate                      # public/data/*.json を docs/SCHEMA.md に照らして検証
 ```
 
-`--jobs` に指定できるのは `top24h,weekmonth,categories,yearall,map,tags`。
+`--jobs` に指定できるのは `top24h,weekmonth,categories,catweekmonth,yearall,catyearall,map,tags`。
 `--force` は間隔判定を無視して強制実行します（予算を食うので通常は使わない）。
 
 ---
@@ -116,7 +116,7 @@ URL は**ハッシュルーティング**です。例:
 
 ## 5. API 割当予算表（ORDER §4）
 
-**結論: 既定構成の消費は 1日あたり 7,125 units（既定割当 10,000 の 71.2%）**で、
+**結論: 現行構成（4カ国・カテゴリ全期間）の消費は 1日あたり 7,837 units（既定割当 10,000 の 78.4%）**で、
 ソフト上限 8,000 units（80%）の下に収まっています。
 算出根拠と全ケースは [`docs/BUDGET.md`](docs/BUDGET.md) を参照。
 構成（国・カテゴリ）を増減するときは、**先に `docs/BUDGET.md` を更新してから**

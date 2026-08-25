@@ -25,7 +25,7 @@ state/prev/{datasetId}.json                 … 前回の順位（↑↓NEW の�
 state/snapshots/{YYYY-MM-DD}.json.gz        … 日次スナップショット（31日で自動削除）
 ```
 
-- `country` … `JP` / `US`（`COUNTRIES[].code`）
+- `country` … `JP` / `US` / `KR` / `GB`（`COUNTRIES[].code`。増減は `public/js/config.js` のみで完結する）
 - `section` … `video` / `shorts`（`SECTIONS[].id`）
 - `period` … `24h` / `week` / `month` / `year` / `all`（`PERIODS[].id`）
 - `category` … `all` / `music` / `gaming` / `entertainment` / `sports` / `news`（`CATEGORIES[].id`）
@@ -42,7 +42,7 @@ state/snapshots/{YYYY-MM-DD}.json.gz        … 日次スナップショット�
   "schemaVersion": 1,
   "generatedAt": "2026-08-25T03:00:00.000Z",  // ISO8601 UTC
   "source": "mock" | "youtube-api",
-  "countries": ["JP", "US"],
+  "countries": ["JP", "US", "KR", "GB"],
   "datasets": {                                // 存在するデータセット → メタ情報
     "JP-video-24h-all": { "generatedAt": "...", "count": 100, "stale": false }
   },
@@ -171,6 +171,20 @@ URL 規約が安定しているため（DECISIONS.md 2026-08-25）。
 - 半減期 14 日（`LEARNING.halfLifeDays`）で読み出し時に減衰させる。
 - **一覧で見える・個別に消せる・重みをいじれる**（ORDER §2-11）ことが仕様の核。
 - `enabled:false` で学習停止。`clear()` で全消去。**送信先は存在しない**。
+
+`localStorage['ytta.freq.v1']`（よく見るランキング / 2026-08-25 発注者改訂 7-c）:
+
+```jsonc
+{
+  "v": 1,
+  "counts": { "JP/video/24h/all": 12 },   // 軸の組み合わせ → 訪問回数（上限 60 件）
+  "pins":   ["JP/shorts/week/music"]      // ☆で手動ピン留めした組み合わせ（上限 8 件）
+}
+```
+
+- キーは `国/部門/期間/カテゴリ`。読み出し時に `config.js` と照合し、消えた軸の行は無視する。
+- 訪問は **2.5 秒とどまって初めて 1 回**（スワイプで通過しただけの軸を数えない）。
+- こちらも**端末内のみ**。外部送信は無い（ORDER §2-11 と同じ約束）。
 
 ---
 

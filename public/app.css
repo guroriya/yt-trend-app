@@ -26,8 +26,8 @@
   --down:      #5a6070;
   --down-soft: #eef0f4;
   --new-soft:  #fff2ee;
-  --land:      #dfe3ea;   /* 地図の陸。海（--bg-sunk）との差が分かる最小限 */
-  --land-edge: #c3cad6;
+  --land:      #ccd4e2;   /* 地図の陸。海（--bg-sunk #eceef3）と 1.4:1 → 輪郭線で 3:1 を担保 */
+  --land-edge: #7d8798;   /* 海に対して 3.1:1。地形はこの線で読ませる */
   --skel:      #e7e9ef;
   --skel-hi:   #f3f4f8;
   --shadow:    0 1px 2px rgba(16,20,28,.06), 0 6px 18px rgba(16,20,28,.06);
@@ -64,8 +64,8 @@
   --down:      #8b94a4;
   --down-soft: #1d222c;
   --new-soft:  #3a1a12;
-  --land:      #242b37;
-  --land-edge: #39414f;
+  --land:      #2b3444;
+  --land-edge: #6b7789;   /* 海(#1b2029)に対して 3.3:1 */
   --skel:      #1c2129;
   --skel-hi:   #262c37;
   --shadow:    0 1px 2px rgba(0,0,0,.5), 0 6px 18px rgba(0,0,0,.4);
@@ -466,7 +466,7 @@ ol, ul { list-style: none; margin: 0; padding: 0; }
 .search-ico { flex: none; width: 18px; height: 18px; color: var(--text-3); }
 .search-ico svg { width: 100%; height: 100%; fill: currentColor; }
 .searchbar input[type="search"] {
-  flex: 1 1 auto; min-width: 0; min-height: var(--tap); padding: 0 10px;
+  flex: 1 1 auto; min-width: 9em; min-height: var(--tap); padding: 0 10px;
   border: 1px solid var(--line-strong); border-radius: var(--r-pill);
   background: var(--bg); color: var(--text); font-size: 14px; font-family: inherit;
 }
@@ -491,7 +491,8 @@ ol, ul { list-style: none; margin: 0; padding: 0; }
   background: var(--bg-sunk); border: 1px solid var(--line); }
 .mapbox svg { position: absolute; inset: 0; width: 100%; height: 100%; }
 .map-land { fill: var(--line); }
-.map-land path { fill: var(--land); stroke: var(--land-edge); stroke-width: .4; vector-effect: non-scaling-stroke; }
+/* 陸の面だけでは海と差がつきにくいので、輪郭線（3:1 以上）で地形を読ませる。 */
+.map-land path { fill: var(--land); stroke: var(--land-edge); stroke-width: 1.2; vector-effect: non-scaling-stroke; }
 .map-pin { position: absolute; transform: translate(-50%, -50%); width: 30px; height: 30px; border-radius: 50%;
   border: 2px solid var(--bg); background: var(--skel); cursor: pointer; padding: 0;
   box-shadow: var(--shadow); }

@@ -31,7 +31,7 @@ export const PERIODS = [
 
 /**
  * カテゴリ（ORDER §2-3, YouTube 公式 videoCategory 準拠）。
- * `periods` は「そのカテゴリを取る期間」。割当の都合で総合以外は 24h のみ（ORDER §2-3）。
+ * `periods` は「そのカテゴリを取る期間」。2026-08-25 の発注者改訂で全カテゴリが全期間に対応（ORDER §2-3 改訂注記）。
  */
 // 2026-08-25 発注者改訂（第2弾）: カテゴリ別タブを全期間に拡張（従来は割当の都合で24hのみ）。
 // 収集は期間帯ごとに別ジョブ（categories / catweekmonth / catyearall）で、planner が予算内に収める。

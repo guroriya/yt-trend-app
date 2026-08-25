@@ -6,7 +6,7 @@
 
 import {
   COUNTRIES, SECTIONS, PERIODS, CATEGORIES, LANGUAGES, DEFAULT_LANG,
-  MAP_COUNTRIES, AD_EVERY, RETENTION, LEARNING, TAPS, datasetPath,
+  MAP_COUNTRIES, AD_EVERY, RETENTION, LEARNING, TAPS, datasetId, datasetPath,
 } from './js/config.js';
 
 /* ---------------------------------------------------------------- helpers */
@@ -150,6 +150,31 @@ async function getJSON(path, { soft = false } = {}) {
 
 const listPath = (s = state) => datasetPath(s.country, s.section, s.period, s.category, s.metric);
 
+/* ---------------------------------------------- データの可用性（index.json）
+ * 収集は予算内で少しずつ進むので、config.js に定義があっても「まだ集まっていない」
+ * 軸が必ず存在する。index.json の datasets を正本にして、無い軸は押させない。
+ * index.json 自体が取れないときは全部あるものとして扱う（従来どおりの挙動に戻す）。
+ */
+function hasData(country = state.country, section = state.section, period = state.period,
+                 category = state.category, metric = state.metric) {
+  const ds = state.index?.datasets;
+  if (!ds) return true;
+  return Object.prototype.hasOwnProperty.call(ds, datasetId(country, section, period, category, metric));
+}
+
+/** その国に1本でもデータがあるか（国トグルの巡回対象を決める）。 */
+function countryHasData(code) {
+  const ds = state.index?.datasets;
+  if (!ds) return true;
+  return Object.keys(ds).some(k => k.startsWith(`${code}-`));
+}
+
+/** いま選べる国。データのある国だけ（全滅なら config どおり）。 */
+function usableCountries() {
+  const list = COUNTRIES.filter(c => countryHasData(c.code));
+  return list.length ? list : COUNTRIES;
+}
+
 /* ------------------------------------------- 端末内学習（v2 / 外部送信なし） */
 const STOP = new Set([
   'the','and','for','you','are','with','this','that','from','have','out','but','all','not','was',
@@ -284,17 +309,18 @@ function youtubeSearchUrl(q, period) {
 }
 
 function syncSearchChrome() {
-  const q = state.q;
-  const clear = $('#q-clear');
-  const yt = $('#q-yt');
-  clear.hidden = !q;
-  yt.hidden = !q;
-  if (q) {
-    yt.href = youtubeSearchUrl(q, state.period);
-    yt.textContent = state.period === 'all'
-      ? t('search.onYouTubeAll')
-      : t('search.onYouTube', { period: t(`period.${state.period}`) });
-  }
+  $('#q-clear').hidden = !state.q;
+}
+
+/** 「YouTubeでこの期間で検索」ボタン。検索バーに置くと入力欄が潰れるのでステータスバーに出す。 */
+function youtubeSearchButton(q, period) {
+  const a = el('a', 'btn btn-ghost btn-sm q-yt', period === 'all'
+    ? t('search.onYouTubeAll')
+    : t('search.onYouTube', { period: t(`period.${period}`) }));
+  a.href = youtubeSearchUrl(q, period);
+  a.target = '_blank';
+  a.rel = 'noopener noreferrer';
+  return a;
 }
 
 /* ------------------------------------- よく見るランキング（発注者改訂 2026-08-25）
@@ -333,10 +359,18 @@ const Favs = {
     if (p.category !== 'all') parts.push(t(`category.${p.category}`));
     return `${flag} ${parts.join(' · ')}`.trim();
   },
-  record() {
+  /** 通過しただけの軸を「よく見る」と数えないための遅延記録。 */
+  _pending: 0,
+  recordSoon() {
+    if (state.mode !== 'everyone') return;
+    clearTimeout(this._pending);
+    const key = this.keyOf();
+    // スワイプで隣を通り抜けただけなら数えない（2.5秒とどまって初めて1回）
+    this._pending = setTimeout(() => { if (this.keyOf() === key) this.record(key); }, 2500);
+  },
+  record(k = this.keyOf()) {
     if (state.mode !== 'everyone') return;
     const d = this.load();
-    const k = this.keyOf();
     d.counts[k] = (d.counts[k] || 0) + 1;
     // 際限なく増やさない（軸の総数を超える分は少ない順に捨てる）
     const keys = Object.keys(d.counts);
@@ -584,14 +618,19 @@ function skeletonList(target, n = 8, { hero = false } = {}) {
 
 function stateNode(kind) {
   const box = el('div', 'state');
+  if (kind === 'pending') {
+    // 収集は予算内で少しずつ進む（docs/BUDGET.md）。まだ来ていないだけなので再読み込みは出さない。
+    box.append(el('div', 'state-emoji', '⏳'));
+    box.append(el('p', 'state-title', t('state.pending.title')));
+    box.append(el('p', 'state-body', t('state.pending.body')));
+    const li0 = el('li'); li0.append(box); return li0;
+  }
   if (kind === 'noHits') {
     // 検索で 0 件。ここから YouTube 本体へ抜けられる導線を必ず添える。
     box.append(el('div', 'state-emoji', '🔍'));
     box.append(el('p', 'state-title', t('search.none', { q: state.q })));
-    const a = el('a', 'btn btn-primary', state.period === 'all'
-      ? t('search.onYouTubeAll') : t('search.onYouTube', { period: t(`period.${state.period}`) }));
-    a.href = youtubeSearchUrl(state.q, state.period);
-    a.target = '_blank'; a.rel = 'noopener noreferrer';
+    const a = youtubeSearchButton(state.q, state.period);
+    a.className = 'btn btn-primary';
     box.append(a);
     const li0 = el('li'); li0.append(box); return li0;
   }
@@ -685,17 +724,25 @@ function growthAvailable(period = state.period) {
 
 function syncAxes() {
   syncSearchChrome();   // 期間が変われば「YouTubeで検索」の期間表示も変わる
+  // 収集がまだ届いていない軸は押させない（押すと 404 になり「通信を確認」と誤解させるため）
   $$('#axis-periods .chip').forEach(b => {
-    const on = b.dataset.period === state.period;
+    const p = b.dataset.period;
+    const usable = hasData(state.country, state.section, p, 'all') || hasData(state.country, state.section, p, state.category);
+    b.hidden = !usable;
+    const on = usable && p === state.period;
     b.classList.toggle('is-active', on); b.setAttribute('aria-selected', String(on));
   });
   $$('#axis-sections button').forEach(b => {
-    const on = b.dataset.section === state.section;
+    const s = b.dataset.section;
+    const usable = hasData(state.country, s, state.period, state.category) || hasData(state.country, s, state.period, 'all');
+    b.hidden = !usable;
+    const on = usable && s === state.section;
     b.classList.toggle('is-active', on); b.setAttribute('aria-selected', String(on));
   });
   $$('#axis-categories .chip').forEach(b => {
     const cat = CATEGORIES.find(c => c.id === b.dataset.category);
-    const usable = cat.periods.includes(state.period);
+    const usable = cat.periods.includes(state.period)
+      && hasData(state.country, state.section, state.period, cat.id);
     b.hidden = !usable;
     const on = usable && b.dataset.category === state.category;
     b.classList.toggle('is-active', on); b.setAttribute('aria-selected', String(on));
@@ -729,7 +776,8 @@ function renderStatus(data, search = null) {
   if (search?.q) {
     // 検索中は「何件中何件か」を最優先で出す（データの鮮度表示より知りたい情報）
     bar.append(el('span', 'badge badge-mock', '🔍'),
-      el('span', null, t('search.hits', { n: search.shown, total: search.total })));
+      el('span', null, t('search.hits', { n: search.shown, total: search.total })),
+      youtubeSearchButton(search.q, state.period));
     return;
   }
   if (state.index?.source === 'mock') {
@@ -756,7 +804,8 @@ async function renderEveryone() {
     data = await getJSON(listPath());
   } catch {
     if (my !== state.reqId) return;
-    list.replaceChildren(stateNode('error'));
+    // まだ収集が届いていない軸と、本当の通信エラーを区別する（同じ見た目にしない）
+    list.replaceChildren(stateNode(hasData() ? 'error' : 'pending'));
     renderStatus(null);
     return;
   }
@@ -921,16 +970,20 @@ const find = {
 /** 検索対象のデータセット一覧。多すぎると重いので「総合」を全期間×全部門ぶん見る。 */
 function findTargets() {
   const out = [];
+  // 存在するデータセットだけを見る（無いものを叩くと打鍵のたびに 404 が並ぶ）
+  const add = (section, period, category) => {
+    if (!hasData(state.country, section, period, category, 'published')) return;
+    out.push({ section, period, path: datasetPath(state.country, section, period, category) });
+  };
   for (const s of SECTIONS) {
     if (find.section !== 'any' && find.section !== s.id) continue;
     for (const p of PERIODS) {
       if (find.period !== 'any' && find.period !== p.id) continue;
-      out.push({ section: s.id, period: p.id, path: datasetPath(state.country, s.id, p.id, 'all') });
+      add(s.id, p.id, 'all');
       // 期間か部門を絞っているときは、その範囲のカテゴリ別も混ぜて取りこぼしを減らす
       if (find.period !== 'any' || find.section !== 'any') {
-        CATEGORIES.filter(c => c.id !== 'all' && c.periods.includes(p.id)).forEach(c => {
-          out.push({ section: s.id, period: p.id, path: datasetPath(state.country, s.id, p.id, c.id) });
-        });
+        CATEGORIES.filter(c => c.id !== 'all' && c.periods.includes(p.id))
+          .forEach(c => add(s.id, p.id, c.id));
       }
     }
   }
@@ -1048,9 +1101,8 @@ async function renderFind() {
     box.append(el('div', 'state-emoji', '🔍'));
     box.append(el('p', 'state-title', t('find.none.title')));
     box.append(el('p', 'state-body', t('find.none.body', { q: find.q })));
-    const a = el('a', 'btn btn-primary', t('search.onYouTubeAll'));
-    a.href = youtubeSearchUrl(find.q, find.period === 'any' ? 'all' : find.period);
-    a.target = '_blank'; a.rel = 'noopener noreferrer';
+    const a = youtubeSearchButton(find.q, find.period === 'any' ? 'all' : find.period);
+    a.className = 'btn btn-primary';
     box.append(a);
     li.append(box);
     list.replaceChildren(li);
@@ -1077,12 +1129,11 @@ async function renderFind() {
   const bar = $('#find-status');
   bar.replaceChildren();
   bar.append(el('span', 'badge badge-mock', '🔍'), el('span', null, t('find.hits', { n: hits.length })));
-  const a = el('a', 'btn btn-ghost btn-sm q-yt', find.period === 'any' || find.period === 'all'
-    ? t('search.onYouTubeAll')
-    : t('search.onYouTube', { period: t(`period.${find.period}`) }));
-  a.href = youtubeSearchUrl(find.q, find.period === 'any' ? 'all' : find.period);
-  a.target = '_blank'; a.rel = 'noopener noreferrer';
-  bar.append(a);
+  // 上位 100 件しか描かない。切り捨てた件数を黙って隠さない（憲章「一覧性」の誠実さ）
+  if (hits.length > shown.length) {
+    bar.append(el('span', 'dot', '·'), el('span', null, t('find.more', { n: hits.length - shown.length })));
+  }
+  bar.append(youtubeSearchButton(find.q, find.period === 'any' ? 'all' : find.period));
 }
 
 /* --------------------------------------------------------------- map view */
@@ -1249,7 +1300,7 @@ async function renderCurrentView() {
   // どのビューで何が起きても、スケルトンのまま固まらないようにする。
   // （タブ切替のハンドラは go() を await しないので、投げっぱなしだと誰も拾えない）
   try {
-    if (state.mode === 'everyone') { syncAxes(); renderFavs(); Favs.record(); await renderEveryone(); }
+    if (state.mode === 'everyone') { syncAxes(); renderFavs(); Favs.recordSoon(); await renderEveryone(); }
     else if (state.mode === 'my')  { await renderMy(); }
     else if (state.mode === 'tags'){ await renderFind(); }
     else if (state.mode === 'map') { await renderMap(); }
@@ -1291,6 +1342,26 @@ function normalize() {
   const cat = CATEGORIES.find(c => c.id === state.category);
   if (!cat || !cat.periods.includes(state.period)) state.category = 'all';
   if (state.metric === 'growth' && !growthAvailable()) state.metric = 'published';
+
+  // 収集がまだ届いていない組み合わせは、いちばん近い「あるもの」へ寄せる。
+  // 直リンクや保存済みの国で 404 の空振りを見せないため（index.json が無いときは素通し）。
+  if (state.index?.datasets && !hasData()) {
+    if (!countryHasData(state.country)) state.country = usableCountries()[0].code;
+    if (!hasData() && state.category !== 'all') state.category = 'all';
+    if (!hasData()) {
+      // 1軸ずつ直すと「部門も期間も無い」ときに収束しない。組み合わせ全体を見て、
+      // いまの選択にいちばん近いもの（部門一致 > 期間一致 > 並び順）を選ぶ。
+      const cands = [];
+      for (const s of SECTIONS) {
+        for (const p of PERIODS) {
+          if (hasData(state.country, s.id, p.id, 'all')) cands.push({ section: s.id, period: p.id });
+        }
+      }
+      const score = c => (c.section === state.section ? 2 : 0) + (c.period === state.period ? 1 : 0);
+      const best = cands.sort((a, b) => score(b) - score(a))[0];
+      if (best) { state.section = best.section; state.period = best.period; }
+    }
+  }
 }
 
 async function go(patch = {}, { push = true, dir = 0 } = {}) {
@@ -1311,7 +1382,11 @@ async function go(patch = {}, { push = true, dir = 0 } = {}) {
 window.addEventListener('hashchange', () => {
   // go() 自身が書き換えたハッシュなら状態は既に一致している。タイマーで抑えるより確実。
   if (location.hash === hashOf()) return;
-  if (readHash()) { normalize(); renderCurrentView(); }
+  if (readHash()) {
+    normalize();
+    if (location.hash !== hashOf()) history.replaceState(null, '', hashOf());
+    renderCurrentView();
+  }
 });
 
 /* ------------------------------------------------------------------ swipe */
@@ -1465,8 +1540,10 @@ function bindChrome() {
     applyStatic(); buildAxes(); await renderCurrentView();
   });
   $('#btn-country').addEventListener('click', () => {
-    const codes = COUNTRIES.map(c => c.code);
-    go({ country: codes[(codes.indexOf(state.country) + 1) % codes.length] }, { dir: 1 });
+    // データのある国だけを巡回する（未収集の国に入ると 404 になるため）
+    const codes = usableCountries().map(c => c.code);
+    const i = codes.indexOf(state.country);
+    go({ country: codes[(i + 1) % codes.length] }, { dir: 1 });
   });
   $('#my-enabled').addEventListener('change', e => {
     Learn.setEnabled(e.target.checked);
@@ -1539,7 +1616,9 @@ async function boot() {
   readHash();
   state.index = await getJSON('data/index.json', { soft: true });
   normalize();
-  if (!location.hash) history.replaceState(null, '', hashOf());
+  // 未収集の軸を normalize が寄せた場合、URL も実際に見えているものへ合わせる
+  // （直リンクを共有したときに、開いた人と同じ場所を指すようにする）
+  if (!location.hash || location.hash !== hashOf()) history.replaceState(null, '', hashOf());
   await renderCurrentView();
   maybeSwipeHint();
   if ('serviceWorker' in navigator) {
