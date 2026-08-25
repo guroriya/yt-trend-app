@@ -455,6 +455,9 @@ ol, ul { list-style: none; margin: 0; padding: 0; }
 .favchip { flex: none; display: inline-flex; align-items: center;
   border: 1px solid var(--line-strong); border-radius: var(--r-pill); background: var(--bg); }
 .favchip.is-pinned { border-color: var(--gold); }
+/* いま見ている場所。行の出入りでリストが跳ねないよう、除外せず印だけ付ける。 */
+.favchip.is-current { background: var(--bg-sunk); }
+.favchip.is-current .favchip-go { color: var(--text); cursor: default; opacity: 1; }
 .favchip-go { min-height: var(--tap); padding: 0 4px 0 12px; border: 0; background: none; cursor: pointer;
   font-size: 12.5px; font-weight: 700; color: var(--text-2); white-space: nowrap; }
 .favchip:hover .favchip-go { color: var(--text); }

@@ -405,8 +405,10 @@ const Favs = {
       .sort((a, b) => b[1] - a[1])
       .slice(0, FAV_SHOW)
       .map(([k]) => k);
+    // 現在地も残す（除外すると軸を移るたびに行が出入りして、リストが上下に跳ねる）。
+    // 代わりに「いまここ」として印を付け、押しても何も起きないようにする。
     return [...pins.map(k => ({ key: k, pinned: true })), ...often.map(k => ({ key: k, pinned: false }))]
-      .filter(c => c.key !== here);
+      .map(c => ({ ...c, current: c.key === here }));
   },
 };
 
@@ -431,12 +433,13 @@ function renderFavs() {
   });
   slot.append(star);
 
-  chips.forEach(({ key, pinned }) => {
-    const wrap = el('span', pinned ? 'favchip is-pinned' : 'favchip');
+  chips.forEach(({ key, pinned, current }) => {
+    const wrap = el('span', `favchip${pinned ? ' is-pinned' : ''}${current ? ' is-current' : ''}`);
     const b = el('button', 'favchip-go', Favs.label(key));
     b.type = 'button';
     b.title = pinned ? t('fav.pinned') : t('fav.often');
-    b.addEventListener('click', () => { const p = Favs.parse(key); if (p) go(p); });
+    if (current) { b.disabled = true; b.setAttribute('aria-current', 'true'); }
+    else b.addEventListener('click', () => { const p = Favs.parse(key); if (p) go(p); });
     const x = el('button', 'favchip-x', '✕');
     x.type = 'button';
     x.title = t('fav.remove', { name: Favs.label(key) });

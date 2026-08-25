@@ -195,7 +195,7 @@ async function collectList(desc, { adaptive = false } = {}) {
 
   let items = details.filter(d => (desc.section === 'shorts' ? d.isShort : !d.isShort));
 
-  // 動画部門はショートを除いたぶん目減りする。旗艦ジョブだけ、余裕があれば1ページ足す。
+  // 動画部門はショートを除いたぶん目減りする。余裕があれば1ページだけ買い足す（全ジョブ）。
   if (adaptive && desc.section === 'video' && items.length < desc.size * 0.6 && pageToken && canSpend(QUOTA.costSearch + QUOTA.costVideos)) {
     log.info(`   thin list (${items.length}/${desc.size}) — fetching one extra page`);
     const extra = await yt.search({
@@ -252,10 +252,20 @@ async function runListJob(jobId) {
     done++;
     const id = datasetId(desc.country, desc.section, desc.period, desc.category);
     try {
-      const raw = await collectList(desc, { adaptive: jobId === 'top24h' });
+      // 動画部門はショートを除いたぶん目減りする。薄いときは1ページだけ買い足す
+      // （予算に余裕があるときだけ。US の月間が3件になっていた 2026-08-25 の実測より）
+      const raw = await collectList(desc, { adaptive: true });
       // 0 件を書くと公開中のデータと prev（順位変動の比較元）まで消える。前回のものを残す。
       if (!raw.length) { log.warn(`${id}: 0 items — keeping the previous file`); complete = false; continue; }
       const { ranks, generatedAt: prevGeneratedAt } = await loadPrevRanks(id);
+      // 前回より極端に痩せた結果で上書きしない（API の気まぐれで「3件の月間ランキング」を
+      // 公開してしまうのを防ぐ）。半分未満に減った場合だけ見送る。
+      const prevCount = (await readJSON(join(DATA_DIR, `${id}.json`), null))?.items?.length || 0;
+      if (prevCount >= 20 && raw.length < prevCount / 2) {
+        log.warn(`${id}: ${raw.length} items vs ${prevCount} before — keeping the previous file`);
+        complete = false;
+        continue;
+      }
       const items = applyRanks(raw, ranks);
       const res = await writeList({
         ...desc,
