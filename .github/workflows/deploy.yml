@@ -143,3 +143,5 @@ jobs:
       - name: デプロイ
         id: deployment
         uses: actions/deploy-pages@v4
+
+# (2026-08-25) ワークフローが gh workflow list に現れないため、再インデックスを促す無害な追記
