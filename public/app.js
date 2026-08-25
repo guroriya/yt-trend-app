@@ -1111,7 +1111,9 @@ async function renderFind() {
     return;
   }
 
-  const shown = hits.slice(0, 100).map((it, i) => ({ ...it, rank: i + 1, prevRank: null, delta: null }));
+  // 順位欄には「検索結果の何番目か」ではなく「元のランキングで何位だったか」を出す。
+  // 連番を出すと1件目が常に金色の1位に見え、意味の無い数字がいちばん目立ってしまう。
+  const shown = hits.slice(0, 100).map(it => ({ ...it, rank: it.__origRank, prevRank: null, delta: null }));
   paintRanking(list, shown, { hero: false, why: false, delta: false });
   // 「どのランキングの何位で見つかったか」を各行に添える（検索結果の意味づけ）
   $$('#find-list .card[data-video-id]', document).forEach(li => {
@@ -1121,7 +1123,7 @@ async function renderFind() {
     const info = $('.info', li);
     if (!info) return;
     info.append(el('span', 'why', t('find.where', {
-      period: t(`period.${w.period}`), section: t(`section.${w.section}`), rank: item.__origRank ?? '',
+      period: t(`period.${w.period}`), section: t(`section.${w.section}`),
     })));
   });
   endLoading(list);

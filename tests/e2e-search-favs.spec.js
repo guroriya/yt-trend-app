@@ -105,6 +105,9 @@ test.describe('検索タブ', () => {
     await expect(page.locator('#find-list .card[data-video-id]').first()).toBeVisible();
     const where = await page.locator('#find-list .card .why').first().textContent();
     expect(where).toContain(EN[`period.${PERIODS[0].id}`]);
+    // 順位欄は「元のランキングでの順位」。検索結果の連番ではない
+    const ranks = await page.locator('#find-list .card .rank').allTextContents();
+    expect(ranks.join(',')).not.toBe(ranks.map((_, i) => i + 1).join(','));
   });
 });
 

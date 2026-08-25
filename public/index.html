@@ -123,8 +123,9 @@
              data-i18n-placeholder="find.placeholder" data-i18n-aria="find.placeholder">
       <button type="button" id="fq-clear" class="q-clear" data-i18n-aria="search.clear" hidden>✕</button>
     </div>
+    <!-- 期間は6個あるので独立した行に（ランキングタブと同じ並び）。部門はその下 -->
+    <div class="axis axis-periods" id="find-periods" role="tablist" data-i18n-aria="find.scope.period"></div>
     <div class="axis-row find-filters">
-      <div class="axis axis-periods" id="find-periods" role="tablist" data-i18n-aria="find.scope.period"></div>
       <div class="segmented" id="find-sections" role="tablist" data-i18n-aria="find.scope.section"></div>
     </div>
   </div>

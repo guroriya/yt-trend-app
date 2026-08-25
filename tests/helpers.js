@@ -234,7 +234,19 @@ export function readLearning(page) {
  * （return の直後に改行が来ると ASI で undefined になるため括弧が要る）。
  */
 export async function runAudit(page) {
+  // 遷移の途中で測ると、色が中間値のまま「コントラスト不足」と判定される
+  // （チップの is-active は 150ms で色が変わる）。静止してから測る。
+  await settle(page);
   return page.evaluate(`(() => { return (${AUDIT_SRC}); })()`);
+}
+
+/** 走っているアニメーション／トランジションが無くなるまで待つ。 */
+export async function settle(page) {
+  await page.waitForFunction(
+    () => document.getAnimations().every(a => a.playState !== 'running'),
+    null,
+    { timeout: 5000 },
+  ).catch(() => {});   // 無限アニメーション（スケルトン）が居ても止まらない
 }
 
 export function criticals(findings) {
