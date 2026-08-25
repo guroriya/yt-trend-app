@@ -198,9 +198,9 @@ ORDER §4 の理想は「24h ランキングは毎時更新」ですが、毎時
 
 | | フェーズ | 内容 | 状態 |
 |---|---|---|---|
-| 🟨 | **P0 足場** | repo・`docs/ORDER.md`・`CLAUDE.md`・`design-reviewer` 配置、モック JSON で UI 骨格 | **実装完了・検収未了**（ORDER §6 の「Playwright スモーク通過」が未達）。モックデータでの表示・タブ切替はローカル（`python -m http.server`）で実測確認済み。ただし **Playwright スモークは未実行**（ローカルに Node が無いため CI に寄せた → [`BACKLOG.md`](BACKLOG.md)） |
+| ✅ | **P0 足場** | repo・`docs/ORDER.md`・`CLAUDE.md`・`design-reviewer` 配置、モック JSON で UI 骨格 | **検収完了（2026-08-25）**。Playwright スモーク含む E2E 182/182 緑（ローカル・CI とも） |
 | 🟨 | **P1 収集** | 実 API で 全期間 × 2カ国 × 2部門 の JSON 生成 | **コードは完成、実行はゲートA 待ち**（`YT_API_KEY` 未発行）。予算プランナ（`scripts/lib/plan.mjs`）とスキーマ検証（`scripts/lib/schema.mjs`）は純粋関数なのでブラウザで実行して検証済み（本表 §5 の数値と一致／モックデータ 44 ファイル（ランキング40＋index/map/tags-JP/tags-US）が検証通過） |
-| ⬜ | **P2 自動化** | GitHub Actions 定時実行＋Pages 公開 | **ゲートE 待ち**（リモートリポジトリ未作成・Pages 未有効化）。ゲート0（`gh` CLI）も未了のため `gh run watch` による検収は目視確認に代替予定 |
+| 🟨 | **P2 自動化** | GitHub Actions 定時実行＋Pages 公開 | **Pages 公開済み**: https://guroriya.github.io/yt-trend-app/ （deploy 成功・e2e CI 緑）。毎時の収集はゲートA（APIキー）待ち |
 | 🟨 | **P3 v1完成** | ORDER §2 の 1〜10 全部＋design-reviewer 合格 → v1 公開 | **実装は完了**（期間・部門・カテゴリ・国の4軸、スワイプザッピング、順位変動、10件ごと広告枠（2026-08-25 発注者指示で 8→10）、転送URL、i18n、PWA）。デザイン憲章の機械チェックは 360×800 / 412×915 × ライト・ダーク × 全タブで指摘ゼロ。**残るのは Playwright E2E の実走（ゲート0）と Pages 公開（ゲートE）** |
 | 🟨 | **P4 v2** | ORDER §2 の 11〜14（My ランキング／タグ／世界地図／伸びランキング） | **実装は完了**。学習の「見える・消せる・いじれる」、ワードランキング、世界地図、伸びランキングの自動有効化までブラウザで確認済み（`python tools/mock.py --growth` で伸びランキングも試せる）。E2E の実走は P3 と同じくゲート0 待ち |
 | 🟨 | **P5 v3 サーバー** | Cloudflare Workers＋KV の匿名タップ集計 | **コードは完成（`workers/taps/`＋フロント重ね表示＋E2E/単体テスト）、デプロイはゲートB 待ち**。純粋ロジックはブラウザ実行で検証済み。`TAPS.endpoint` が空の間は送信もフェッチも起きない |

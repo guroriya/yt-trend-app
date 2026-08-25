@@ -76,7 +76,7 @@ cd C:\Users\Owner\yt-trend-app ; python tools/mock.py ; python -m http.server 41
 
 ---
 
-## ゲートE（未着手 / 所要 5分）— GitHub リポジトリの作成と Pages 有効化  ★P2 で必要
+## ゲートE（済 2026-08-25）— GitHub リポジトリの作成と Pages 有効化（https://github.com/guroriya/yt-trend-app / Pages は Actions ビルドで有効化済み）
 
 ゲート0（`gh auth login` まで）が済んでいれば、次の1行で作成〜公開まで自動で進みます:
 
