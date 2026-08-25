@@ -1,6 +1,6 @@
 # HANDOFF.md — 引き継ぎ
 
-最終更新: 2026-08-25 / 直近コミット: `de68d3e` / タグ: `p0`
+最終更新: 2026-08-25（2回目のセッション） / 直近コミット: `5c8b41c` / タグ: `p0`
 
 ## 0. 再開のしかた（新しいセッションはここから）
 
@@ -22,23 +22,25 @@ cd C:\Users\Owner\yt-trend-app ; python tools/mock.py ; python -m http.server 41
 
 ## 1. 現在地
 
-- **P0 完了（タグ `p0`）。P1 収集・P3 v1 UI・P4 v2 UI はコード完成で、実走だけが人間ゲート待ち。**
-  4タブ／4軸／スワイプザッピング／順位変動／広告枠／i18n／ライトダーク／PWA／学習インスペクタまで、モック上で実測確認済み。
-- 未実行コードは独立レビュー＋反証の二段に掛け、確認された不具合 20 件を修正済み（`DECISIONS.md` 参照）。
-- **ORDER §5 のデザイン監査を1巡完了、Critical ゼロ。** 憲章の機械チェック（`tools/audit.js`）は
-  英日 × ライトダーク × 全8ビュー × 2画面幅で指摘ゼロ、スキーマ検証も生成データ 43 ファイルでエラーゼロ。
+- **P0 完了（タグ `p0`）。P1 収集・P3 v1 UI・P4 v2 UI に加え、P5（v3 匿名タップ集計）もコード完成。**
+  実走（収集・E2E・Workers デプロイ）だけが人間ゲート待ち。P6 の申請文一式も `docs/SUBMISSIONS.md` に準備済み。
+- 発注者指示（2026-08-25）で**広告枠は10件ごと**（`AD_EVERY=10`、ORDER §2-9 に改訂注記）。
+- 今回の変更も独立レビュー＋反証の二段に掛け、確認された 13 件を修正済み（`5c8b41c`、累計33件）。
+  憲章の機械チェックは英日 × ライトダーク × 対象ビューで指摘ゼロを維持（Critical ゼロ）。
 
 ## 2. 次の一手
 
-1. **発注者に `NEEDS_HUMAN.md` のゲート0（Node/gh 導入）→ A（APIキー）→ E（repo と Pages）を実行してもらう。**
+1. **発注者に `NEEDS_HUMAN.md` のゲート0（Node/gh 導入）→ A（APIキー）→ E（repo と Pages）を実行してもらう**
+   （v1 公開後、任意のタイミングでゲートB＝Workers デプロイ。手順は NEEDS_HUMAN.md に記載済み）。
 2. ゲート0 が解けたら `npm ci && npx playwright install chromium && npm run test:e2e` で E2E を実走し、
-   P0/P3/P4 の検収を締める（`npm run collect -- --dry-run` で予算計画だけ先に見られる）。
+   P0/P3/P4/P5 の検収を締める（taps は `?taps=mock` で表示だけ先に確認可）。
 3. 実データが 3 日ぶん貯まると「伸び」ランキングが自動で有効化される（`python tools/mock.py --growth` で見た目だけ先に確認可）。
 
 ## 3. 未解決
 
 - ローカルに Node/npm/gh が無く、**収集スクリプトと Playwright は一度も実走していない**
-  （純粋ロジックの `plan.mjs` / `pure.mjs` / `tags.mjs` / `schema.mjs` はブラウザで実行して検証済み）。
+  （純粋ロジックの `plan.mjs` / `pure.mjs` / `tags.mjs` / `schema.mjs` / `workers/taps/src/lib.mjs` は
+  ブラウザで実行して検証済み）。
 - この環境のブラウザは **Service Worker 登録・IntersectionObserver の発火・スクリーンショットができない**。
   PWA オフラインと表示ログ学習の実動確認、および見た目の目視は CI の E2E と発注者（ゲートD）に委ねている。
 - 世界地図の地形は簡易グリッド。カード設計のやり直しが要るデザイン指摘とともに `BACKLOG.md` へ。
