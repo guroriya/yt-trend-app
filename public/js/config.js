@@ -62,6 +62,19 @@ export const MAP_COUNTRIES = [
   { code: 'SA', lat: 24.0,  lon: 45.1   }, { code: 'PL', lat: 51.9,  lon: 19.1   },
 ];
 
+/**
+ * search.list は q（検索語）なしだと常に 0 件を返す（2026-08-25 に実測で確認。
+ * 診断の経緯は DECISIONS.md）。しかも q は事実上コンテンツ言語を決める。
+ * そこで「その言語のほぼすべての動画のタイトル/説明に含まれる語」の OR を言語別に渡す。
+ * キーは COUNTRIES[].hl。国を増やすときは対応する言語をここに足す（無ければ default）。
+ * ごく一部（これらの語を一切含まない動画）の取りこぼしは許容する（ショート判定の数%誤差と同格）。
+ */
+export const SEARCH_Q = {
+  ja: 'の|に|を|が|は',
+  en: 'a|the|i|to',
+  default: 'a|the',
+};
+
 /** 広告カードの挿入間隔。ORDER §2-9 の原文は8件ごとだが、2026-08-25 の発注者指示で
     「使いやすさ優先・煩わしくなく、それでも表示する」= 10件ごとに変更（DECISIONS.md）。 */
 export const AD_EVERY = 10;
@@ -125,7 +138,7 @@ export const LEARNING = {
 
 export const CONFIG = {
   COUNTRIES, SECTIONS, PERIODS, CATEGORIES, LANGUAGES, DEFAULT_LANG,
-  MAP_COUNTRIES, AD_EVERY, QUOTA, SCHEDULE, RETENTION, LEARNING, TAPS,
+  MAP_COUNTRIES, AD_EVERY, QUOTA, SCHEDULE, RETENTION, LEARNING, TAPS, SEARCH_Q,
 };
 export default CONFIG;
 

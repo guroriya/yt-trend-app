@@ -87,11 +87,12 @@ export class YouTube {
    * 期間内に投稿された動画の id を再生数順に。part=id にして転送量を減らす（費用は同じ100）。
    * @returns {Promise<{ids: string[], nextPageToken: string|undefined}>}
    */
-  async search({ regionCode, publishedAfter, videoCategoryId, videoDuration, maxResults = 50, pageToken, costSearch = 100 }) {
+  async search({ regionCode, publishedAfter, videoCategoryId, videoDuration, q, maxResults = 50, pageToken, costSearch = 100 }) {
     const data = await this.#call('search', {
       part: 'id',
       type: 'video',
       order: 'viewCount',
+      q, // q なしは常に 0 件（config.js SEARCH_Q 参照）
       regionCode,
       publishedAfter,
       videoCategoryId,

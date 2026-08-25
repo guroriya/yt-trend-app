@@ -12,7 +12,7 @@
 
 import { join } from 'node:path';
 import {
-  COUNTRIES, SECTIONS, PERIODS, MAP_COUNTRIES, QUOTA, RETENTION, datasetId,
+  COUNTRIES, SECTIONS, PERIODS, MAP_COUNTRIES, QUOTA, RETENTION, SEARCH_Q, datasetId,
 } from '../public/js/config.js';
 import {
   DATA_DIR, STATE_DIR, chunk, ensureDir, listDir, log, parseArgs, quotaDate, readJSON, writeJSON,
@@ -20,6 +20,12 @@ import {
 import { formatPlan, isDue, listsOfJob, planSchedule } from './lib/plan.mjs';
 import { QuotaExceededError, YouTube, publishedAfterFor } from './lib/youtube.mjs';
 import { SHORT_MAX_SEC, confirmShorts } from './lib/shorts.mjs';
+
+/** 国 → search.list に渡す q（言語別・config.js の SEARCH_Q が正本）。 */
+function searchQFor(countryCode) {
+  const hl = COUNTRIES.find(c => c.code === countryCode)?.hl;
+  return SEARCH_Q[hl] || SEARCH_Q.default;
+}
 import {
   appendSnapshot, applyRanks, computeGrowthItems, growthFeature, loadPrevRanks,
   snapshotForDaysAgo, writeIndex, writeList, writeMap, writeTags,
@@ -137,11 +143,13 @@ async function collectList(desc, { adaptive = false } = {}) {
   const ids = [];
   let pageToken;
   for (let p = 0; p < pages; p++) {
+    // q なしの search.list は常に 0 件（2026-08-25 実測・DECISIONS 参照）。
     const res = await yt.search({
       regionCode: desc.country,
       publishedAfter,
       videoCategoryId: desc.ytCategoryId || undefined,
       videoDuration,
+      q: searchQFor(desc.country),
       maxResults: QUOTA.pageSize,
       pageToken,
       costSearch: QUOTA.costSearch,
@@ -176,6 +184,7 @@ async function collectList(desc, { adaptive = false } = {}) {
     const extra = await yt.search({
       regionCode: desc.country, publishedAfter,
       videoCategoryId: desc.ytCategoryId || undefined,
+      q: searchQFor(desc.country),
       maxResults: QUOTA.pageSize, pageToken, costSearch: QUOTA.costSearch,
     });
     const more = await yt.videos(extra.ids.slice(0, 50), { costVideos: QUOTA.costVideos });
