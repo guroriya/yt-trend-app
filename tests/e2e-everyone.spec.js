@@ -130,7 +130,7 @@ test.describe('ランキングカード', () => {
     expect(firstIsHero).toBe(true);
   });
 
-  test('広告カードは8件ごとに1枠、AD 表記つき（ORDER §2-9）', async ({ page }) => {
+  test('広告カードは AD_EVERY 件ごとに1枠、AD 表記つき（ORDER §2-9・発注者改訂）', async ({ page }) => {
     await gotoApp(page);
     await waitForList(page);
 

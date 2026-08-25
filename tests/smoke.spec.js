@@ -30,7 +30,7 @@ test.describe('P0 スモーク', () => {
     await expect(page.locator('#statusbar')).toBeVisible();
     await waitForList(page);
 
-    // 既定は 100 件（総合）＋ 8件ごとの広告枠
+    // 既定は 100 件（総合）＋ AD_EVERY 件ごとの広告枠
     await expect(page.locator('#list .card[data-video-id]')).toHaveCount(expectedItemCount('all'));
     await expect(page.locator('#list .card-ad')).toHaveCount(expectedAdCount(expectedItemCount('all')));
     await expect(page.locator('#list .card-hero')).toHaveCount(1);

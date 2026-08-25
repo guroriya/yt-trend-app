@@ -152,7 +152,7 @@ export function expectedAdCount(n) {
   return Math.max(0, Math.floor((n - 1) / AD_EVERY));
 }
 
-/** 広告カードが入る 1 始まりの位置（9, 18, 27 …）。 */
+/** 広告カードが入る 1 始まりの位置（AD_EVERY=10 なら 11, 22, 33 …）。 */
 export function expectedAdPositions(n) {
   return Array.from({ length: expectedAdCount(n) }, (_, k) => (k + 1) * (AD_EVERY + 1));
 }

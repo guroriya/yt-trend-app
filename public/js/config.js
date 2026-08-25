@@ -62,8 +62,9 @@ export const MAP_COUNTRIES = [
   { code: 'SA', lat: 24.0,  lon: 45.1   }, { code: 'PL', lat: 51.9,  lon: 19.1   },
 ];
 
-/** 広告カードの挿入間隔（ORDER §2-9: リスト8件ごとに1枠）。 */
-export const AD_EVERY = 8;
+/** 広告カードの挿入間隔。ORDER §2-9 の原文は8件ごとだが、2026-08-25 の発注者指示で
+    「使いやすさ優先・煩わしくなく、それでも表示する」= 10件ごとに変更（DECISIONS.md）。 */
+export const AD_EVERY = 10;
 
 /** API 割当のセーフガード（ORDER §4）。 */
 export const QUOTA = {
