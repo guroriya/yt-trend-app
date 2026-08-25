@@ -727,27 +727,36 @@ function growthAvailable(period = state.period) {
 
 function syncAxes() {
   syncSearchChrome();   // 期間が変われば「YouTubeで検索」の期間表示も変わる
-  // 収集がまだ届いていない軸は押させない（押すと 404 になり「通信を確認」と誤解させるため）
+  /* 収集は予算内で数日かけて進む（docs/BUDGET.md）。まだ届いていない軸を「隠す」と
+     機能が消えたように見えるので、点線＝集計中として必ず出したままにする。
+     押せば「まだ集計されていません」の案内が出る（404 のエラーにはしない）。 */
+  const markPending = (b, pending) => {
+    b.classList.toggle('is-pending', pending);
+    if (pending) b.title = t('state.pending.title');
+    else b.removeAttribute('title');
+  };
   $$('#axis-periods .chip').forEach(b => {
     const p = b.dataset.period;
-    const usable = hasData(state.country, state.section, p, 'all') || hasData(state.country, state.section, p, state.category);
-    b.hidden = !usable;
-    const on = usable && p === state.period;
+    b.hidden = false;
+    markPending(b, !(hasData(state.country, state.section, p, 'all')
+      || hasData(state.country, state.section, p, state.category)));
+    const on = p === state.period;
     b.classList.toggle('is-active', on); b.setAttribute('aria-selected', String(on));
   });
   $$('#axis-sections button').forEach(b => {
     const s = b.dataset.section;
-    const usable = hasData(state.country, s, state.period, state.category) || hasData(state.country, s, state.period, 'all');
-    b.hidden = !usable;
-    const on = usable && s === state.section;
+    b.hidden = false;
+    markPending(b, !(hasData(state.country, s, state.period, state.category)
+      || hasData(state.country, s, state.period, 'all')));
+    const on = s === state.section;
     b.classList.toggle('is-active', on); b.setAttribute('aria-selected', String(on));
   });
   $$('#axis-categories .chip').forEach(b => {
     const cat = CATEGORIES.find(c => c.id === b.dataset.category);
-    const usable = cat.periods.includes(state.period)
-      && hasData(state.country, state.section, state.period, cat.id);
-    b.hidden = !usable;
-    const on = usable && b.dataset.category === state.category;
+    // config で「その期間には無い」カテゴリだけを隠す（＝仕様上そもそも存在しない）
+    b.hidden = !cat.periods.includes(state.period);
+    markPending(b, !b.hidden && !hasData(state.country, state.section, state.period, cat.id));
+    const on = !b.hidden && b.dataset.category === state.category;
     b.classList.toggle('is-active', on); b.setAttribute('aria-selected', String(on));
   });
   // 選択中のチップが横スクロールの外に居ると、どこに居るのか分からないまま
@@ -1343,14 +1352,15 @@ function readHash() {
   return true;
 }
 
-function normalize() {
+function normalize({ snap = false } = {}) {
   const cat = CATEGORIES.find(c => c.id === state.category);
   if (!cat || !cat.periods.includes(state.period)) state.category = 'all';
   if (state.metric === 'growth' && !growthAvailable()) state.metric = 'published';
 
-  // 収集がまだ届いていない組み合わせは、いちばん近い「あるもの」へ寄せる。
-  // 直リンクや保存済みの国で 404 の空振りを見せないため（index.json が無いときは素通し）。
-  if (state.index?.datasets && !hasData()) {
+  /* 未収集の組み合わせを「あるもの」へ寄せるのは **起動時だけ**（snap=true）。
+     自分で押した軸を勝手に動かすと、押したはずのタブが戻る挙動になる。
+     押した先が未収集なら「まだ集計されていません」を出す（そちらが正直）。 */
+  if (snap && state.index?.datasets && !hasData()) {
     if (!countryHasData(state.country)) state.country = usableCountries()[0].code;
     if (!hasData() && state.category !== 'all') state.category = 'all';
     if (!hasData()) {
@@ -1620,7 +1630,8 @@ async function boot() {
   bindChrome();
   readHash();
   state.index = await getJSON('data/index.json', { soft: true });
-  normalize();
+  // 起動時だけ、データのある組み合わせに寄せる（保存された国が未収集のときの空振り防止）
+  normalize({ snap: true });
   // 未収集の軸を normalize が寄せた場合、URL も実際に見えているものへ合わせる
   // （直リンクを共有したときに、開いた人と同じ場所を指すようにする）
   if (!location.hash || location.hash !== hashOf()) history.replaceState(null, '', hashOf());

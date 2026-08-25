@@ -178,6 +178,13 @@ ol, ul { list-style: none; margin: 0; padding: 0; }
 .chip { position: relative; }
 .chip::before { content: ""; position: absolute; inset: -3px 0; }
 .chip:hover { border-color: var(--text-3); color: var(--text); }
+/* まだ収集が届いていない軸。隠すと機能が消えたように見えるので、点線で「これから」と示す。
+   文字色は落とさない（コントラストを守る）。 */
+.chip.is-pending, .segmented button.is-pending { border-style: dashed; }
+.chip.is-pending::after, .segmented button.is-pending::after {
+  content: "…"; margin-left: 3px; color: var(--text-3); font-weight: 700;
+}
+.segmented button.is-pending { border: 1px dashed var(--line-strong); }
 .chip.is-active {
   background: var(--accent-fill); border-color: var(--accent-fill); color: var(--on-accent);
 }

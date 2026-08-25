@@ -7,7 +7,7 @@
 
 import { test, expect } from '@playwright/test';
 import {
-  COUNTRIES, SECTIONS, PERIODS, I18N,
+  COUNTRIES, SECTIONS, PERIODS, CATEGORIES, I18N,
   gotoApp, waitForList, everyoneHash, tagsHash, readDataset, readIndexJSON,
 } from './helpers.js';
 
@@ -183,18 +183,40 @@ test.describe('未収集データの扱い', () => {
     }));
   }
 
-  test('データのある軸だけがチップに出る（押せない軸を見せない）', async ({ page }) => {
+  test('未収集の軸も隠さず「集計中」として出す（機能が消えたように見せない）', async ({ page }) => {
     await routeThinIndex(page);
     await gotoApp(page, everyoneHash({ country: 'JP', section: 'video', period: '24h' }));
     await waitForList(page);
 
-    const visible = page.locator('#axis-periods .chip:not([hidden])');
-    await expect(visible).toHaveCount(1);
-    await expect(page.locator('#axis-categories .chip:not([hidden])')).toHaveCount(1);
-    await expect(page.locator('#axis-sections button:not([hidden])')).toHaveCount(1);
+    // 期間は全部出したまま。データが無いものは点線＝集計中の印がつく
+    await expect(page.locator('#axis-periods .chip:not([hidden])')).toHaveCount(PERIODS.length);
+    await expect(page.locator('#axis-periods .chip.is-pending')).toHaveCount(PERIODS.length - 1);
+    await expect(page.locator(`#axis-periods .chip[data-period="${PERIODS[0].id}"]`))
+      .not.toHaveClass(/is-pending/);
+
+    // 部門も同じ（ショートは未収集なので集計中）
+    await expect(page.locator('#axis-sections button:not([hidden])')).toHaveCount(SECTIONS.length);
+    await expect(page.locator('#axis-sections button.is-pending')).toHaveCount(SECTIONS.length - 1);
+
+    // カテゴリは「その期間に定義があるもの」だけ出す（24h は全部）。総合以外は集計中
+    const cats24h = CATEGORIES.filter(c => c.periods.includes(PERIODS[0].id));
+    await expect(page.locator('#axis-categories .chip:not([hidden])')).toHaveCount(cats24h.length);
+    await expect(page.locator('#axis-categories .chip.is-pending')).toHaveCount(cats24h.length - 1);
   });
 
-  test('未収集の軸へ直リンクしても、ある軸へ寄せて表示する（404 のエラーを見せない）', async ({ page }) => {
+  test('「集計中」の軸を押すと、その軸のまま案内が出る（勝手に戻らない）', async ({ page }) => {
+    await routeThinIndex(page);
+    await page.route('**/data/JP-video-week-all.json', route => route.fulfill({ status: 404, body: '' }));
+    await gotoApp(page, everyoneHash({ country: 'JP', section: 'video', period: '24h' }));
+    await waitForList(page);
+
+    await page.locator('#axis-periods .chip[data-period="week"]').click();
+    await expect(page).toHaveURL(/\/video\/week\/all\/published$/);   // 押した場所に留まる
+    await expect(page.locator('#list .state-title')).toHaveText(I18N.en['state.pending.title']);
+    await expect(page.locator('#list .state .btn')).toHaveCount(0);      // 再読み込みは出さない
+  });
+
+  test('起動時は未収集の軸から、ある軸へ寄せて表示する（404 のエラーを見せない）', async ({ page }) => {
     await routeThinIndex(page);
     await gotoApp(page, everyoneHash({ country: 'JP', section: 'shorts', period: 'year' }));
     await waitForList(page);
