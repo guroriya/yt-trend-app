@@ -226,6 +226,7 @@ def make_list(country, section, period, category, size, days, metric="published"
 
 def main():
     with_growth = "--growth" in sys.argv
+    with_backfill = "--backfill" in sys.argv   # 遡り収集の進捗表示を UI/E2E で確認する用
     countries, sections, periods, cats, map_countries = read_config()
     os.makedirs(OUT, exist_ok=True)
     for f in os.listdir(OUT):
@@ -265,16 +266,21 @@ def main():
                     written += 1
 
     # 世界地図（collect.mjs runMapJob と同じ規則: 既に使った動画は次点へ譲る）
+    # 2026-08-25 第3弾「地図拡充」: 各国トップ10のミニリスト（top）も出す。
     map_items = []
     used_ids = set()
     for mc in map_countries:
-        cands = make_list(mc["code"], "video", "24h", "all", 5, 1)["items"]
+        cands = make_list(mc["code"], "video", "24h", "all", 10, 1)["items"]
         top = next((v for v in cands if v["videoId"] not in used_ids), cands[0])
         used_ids.add(top["videoId"])
         map_items.append({
             "country": mc["code"], "lat": mc["lat"], "lon": mc["lon"],
             "videoId": top["videoId"], "title": top["title"],
             "channelTitle": top["channelTitle"], "viewCount": top["viewCount"], "isShort": False,
+            "top": [{
+                "videoId": v["videoId"], "title": v["title"], "channelTitle": v["channelTitle"],
+                "viewCount": v["viewCount"], "isShort": False,
+            } for v in cands[:10]],
         })
     with open(os.path.join(OUT, "map.json"), "w", encoding="utf-8") as fh:
         json.dump({"schemaVersion": 1, "generatedAt": iso(NOW), "items": map_items}, fh,
@@ -313,6 +319,10 @@ def main():
                 "periods": growth_periods,
             },
             "map": True, "tags": True,
+            # collect.mjs と同じ形。--backfill で「拡充中 (n/total)」表示を検証できる。
+            "backfill": {"active": with_backfill,
+                         "done": 37 if with_backfill else 0,
+                         "total": 33 * len(countries)},
         },
         "quota": {"spentToday": 0, "dailyUnits": 10000, "degraded": False},
         "attribution": "This product uses the YouTube API Services.",

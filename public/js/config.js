@@ -12,6 +12,10 @@ export const COUNTRIES = [
   // 収集・UI・テストが追随する。追加前に docs/BUDGET.md を更新すること（ORDER §4）。
   { code: 'KR', flag: '🇰🇷', lat: 36.5, lon: 127.9, hl: 'ko', primary: true },
   { code: 'GB', flag: '🇬🇧', lat: 54.0, lon: -2.0,  hl: 'en', primary: true },
+  // 2026-08-25 発注者改訂（第3弾）: 24hランキングを毎日更新に緩めた予算で国別を強化。
+  // まず IN/BR の2カ国（無料枠内）。増枠（ゲートF: 20,000）が通ったら FR/DE を足して8カ国にする。
+  { code: 'IN', flag: '🇮🇳', lat: 22.4,  lon: 78.9,  hl: 'hi', primary: true },
+  { code: 'BR', flag: '🇧🇷', lat: -10.8, lon: -52.9, hl: 'pt', primary: true },
 ];
 
 /** 部門（ORDER §2-2）。 */
@@ -51,7 +55,10 @@ export const LANGUAGES = [
 ];
 export const DEFAULT_LANG = 'en';
 
-/** 世界地図タブ用（ORDER §2-13）。videos.list(chart=mostPopular) は 1 unit なので安い。 */
+/** 世界地図タブ用（ORDER §2-13）。videos.list(chart=mostPopular) は 1 unit なので安い。
+    2026-08-25 発注者改訂（第3弾）「国別を強くする」で 26→60カ国に拡充。
+    mostPopular 非対応の国が混ざっていても収集は落ちない（国単位で握って前回値を残す実装）。
+    実走ログで恒常的に失敗する国が見つかったらここから外す。 */
 export const MAP_COUNTRIES = [
   { code: 'JP', lat: 36.2,  lon: 138.3  }, { code: 'US', lat: 39.8,  lon: -98.6  },
   { code: 'GB', lat: 54.0,  lon: -2.0   }, { code: 'DE', lat: 51.2,  lon: 10.4   },
@@ -66,6 +73,23 @@ export const MAP_COUNTRIES = [
   { code: 'ZA', lat: -28.5, lon: 24.7   }, { code: 'NG', lat: 9.1,   lon: 8.7    },
   { code: 'EG', lat: 26.8,  lon: 30.8   }, { code: 'TR', lat: 39.0,  lon: 35.2   },
   { code: 'SA', lat: 24.0,  lon: 45.1   }, { code: 'PL', lat: 51.9,  lon: 19.1   },
+  { code: 'NL', lat: 52.2,  lon: 5.3    }, { code: 'BE', lat: 50.6,  lon: 4.7    },
+  { code: 'CH', lat: 46.8,  lon: 8.2    }, { code: 'AT', lat: 47.6,  lon: 14.1   },
+  { code: 'SE', lat: 62.0,  lon: 15.0   }, { code: 'NO', lat: 64.5,  lon: 11.0   },
+  { code: 'DK', lat: 56.0,  lon: 9.5    }, { code: 'FI', lat: 64.0,  lon: 26.0   },
+  { code: 'PT', lat: 39.6,  lon: -8.0   }, { code: 'GR', lat: 39.0,  lon: 22.0   },
+  { code: 'CZ', lat: 49.8,  lon: 15.5   }, { code: 'HU', lat: 47.2,  lon: 19.4   },
+  { code: 'RO', lat: 45.9,  lon: 25.0   }, { code: 'UA', lat: 48.4,  lon: 31.2   },
+  { code: 'IE', lat: 53.4,  lon: -8.0   }, { code: 'IL', lat: 31.4,  lon: 35.0   },
+  { code: 'AE', lat: 24.0,  lon: 54.0   }, { code: 'PK', lat: 30.0,  lon: 69.3   },
+  { code: 'BD', lat: 23.7,  lon: 90.4   }, { code: 'LK', lat: 7.9,   lon: 80.7   },
+  { code: 'NP', lat: 28.4,  lon: 84.1   }, { code: 'MY', lat: 4.2,   lon: 102.0  },
+  { code: 'SG', lat: 1.35,  lon: 103.8  }, { code: 'TW', lat: 23.7,  lon: 121.0  },
+  { code: 'HK', lat: 22.3,  lon: 114.2  }, { code: 'CL', lat: -35.7, lon: -71.5  },
+  { code: 'CO', lat: 4.6,   lon: -74.1  }, { code: 'PE', lat: -9.2,  lon: -75.0  },
+  { code: 'KE', lat: 0.0,   lon: 37.9   }, { code: 'MA', lat: 31.8,  lon: -7.1   },
+  { code: 'TN', lat: 34.0,  lon: 9.6    }, { code: 'GH', lat: 7.9,   lon: -1.0   },
+  { code: 'TZ', lat: -6.4,  lon: 34.9   }, { code: 'SN', lat: 14.5,  lon: -14.5  },
 ];
 
 /**
@@ -79,6 +103,12 @@ export const SEARCH_Q = {
   ja: 'の|に|を|が|は',
   en: 'a|the|i|to',
   ko: '이|의|는|을|하',
+  // 2026-08-25 発注者改訂（第3弾）の国追加ぶん。hi はヒングリッシュ（ローマ字表記）の動画を
+  // 取りこぼす可能性がある。IN の実データが貯まったら件数を見て `|the|a` 混合への切替を判断する。
+  hi: 'के|में|है|की|का',
+  pt: 'de|que|em|para|com',
+  fr: 'de|le|la|les|des',   // ゲートF（増枠）後に FR を足すとき用
+  de: 'der|die|und|das|mit', // 同上（DE 用）
   default: 'a|the',
 };
 
@@ -105,16 +135,59 @@ export const QUOTA = {
 export const SCHEDULE = {
   cronHours: 1, // GitHub Actions の cron は毎時。実行するかどうかは planner が決める
   jobs: [
-    { id: 'top24h',       everyHours: 6,   floorHours: 24,  priority: 1, desiredHours: 1 },
-    { id: 'weekmonth',    everyHours: 24,  floorHours: 168, priority: 2, desiredHours: 24 },
-    { id: 'categories',   everyHours: 24,  floorHours: 168, priority: 3, desiredHours: 24 },   // カテゴリ×24h
-    { id: 'map',          everyHours: 24,  floorHours: 24,  priority: 4, desiredHours: 24 },   // 26 units と激安なので毎日より遅くしない（floor=24h）
-    { id: 'catweekmonth', everyHours: 48,  floorHours: 336, priority: 5, desiredHours: 24 },   // カテゴリ×週間・月間
-    { id: 'yearall',      everyHours: 168, floorHours: 720, priority: 6, desiredHours: 168 },
-    { id: 'catyearall',   everyHours: 336, floorHours: 720, priority: 7, desiredHours: 168 },  // カテゴリ×年間・全期間
+    // 2026-08-25 発注者改訂（第3弾）: 「24時間ランキングは当面毎日1回でよい。浮いた予算で国別を強く」。
+    // top24h は desiredHours=24 のキャップで毎日に固定し、増枠後の余りは weekmonth → categories へ
+    // 流れる（priority 順の昇格）。再び高頻度にしたくなったら top24h の desiredHours を小さくするだけ。
+    // floorHours=168: 割当が極端に減った緊急時は「毎日」を諦めて遅くする（スキップで消えるよりまし）
+    //
+    // 不変条件（6カ国化で顕在化・60日シミュレーションが守る）: どのジョブも「1回の費用 < 1日の
+    // ハード停止(95%)」であること。超えると1周を1回の実行で完走できず lastRun が永遠に進まない
+    // ＝常に due のまま予算を食い続けて他のジョブを飢餓させる。だからカテゴリ×週間・月間と
+    // カテゴリ×年間・全期間は期間ごとの4ジョブに分割してある（費用は同じ・1周が半分になる）。
+    { id: 'top24h',       everyHours: 24,  floorHours: 168, priority: 1, desiredHours: 24 },
+    { id: 'weekmonth',    everyHours: 72,  floorHours: 336, priority: 2, desiredHours: 24 },
+    { id: 'categories',   everyHours: 168, floorHours: 720, priority: 3, desiredHours: 24 },   // カテゴリ×24h
+    { id: 'map',          everyHours: 24,  floorHours: 24,  priority: 4, desiredHours: 24 },   // 1国1unit と激安なので毎日より遅くしない（floor=24h）
+    { id: 'catweek',      everyHours: 336, floorHours: 720, priority: 5, desiredHours: 24 },   // カテゴリ×週間
+    { id: 'catmonth',     everyHours: 336, floorHours: 720, priority: 6, desiredHours: 24 },   // カテゴリ×月間
+    // 年間・全期間はバックフィル（BACKFILL）の候補プール再構成が 0 units で毎回更新するので、
+    // search での取り直しは月1回まで落とせる（プールへの餌やりとしては残す）。
+    { id: 'yearall',      everyHours: 720, floorHours: 720, priority: 7, desiredHours: 168 },
+    { id: 'catyear',      everyHours: 720, floorHours: 720, priority: 8, desiredHours: 168 },  // カテゴリ×年間
+    { id: 'catall',       everyHours: 720, floorHours: 720, priority: 9, desiredHours: 168 },  // カテゴリ×全期間
     // タグ集計は公開中の JSON を数え直すだけで API を使わない（0 units）。
-    { id: 'tags',         everyHours: 6,   floorHours: 24,  priority: 8, desiredHours: 6 },
+    { id: 'tags',         everyHours: 6,   floorHours: 24,  priority: 10, desiredHours: 6 },
   ],
+};
+
+/**
+ * 全期間ランキングの遡り収集（2026-08-25 発注者改訂 第3弾）。
+ * publishedAfter/publishedBefore で年単位の窓を切って search し、各年代の上位動画を
+ * 候補プール（state/pool/）に貯め、year/all のランキングをプールから 0 units で再構成する。
+ * enabled=false の間は planner の予約も収集も一切動かない（従来どおり）。
+ * 全窓を歩き終えた国は自動で完了し、全国完了で予約枠も自動で 0 になる。
+ */
+export const BACKFILL = {
+  enabled: false,            // 新しく足した国（IN/BR）の初回取得が済んだら true にする
+  dailyUnits: 1400,          // planner がソフト上限から差し引く1日あたりの予約枠
+  videoStartYear: 2005,      // 動画部門の窓の開始年（YouTube 創設）
+  shortsStartYear: 2020,     // ショート部門の窓の開始年（Shorts の開始）
+  splitRecentYears: 2,       // 直近 n 年は半年窓に細分化（投稿が多い年代ほど細かく取る）
+  poolMaxPerCountry: 5000,   // 候補プールの上限。超えたら再生数の少ない順に間引く
+  refreshDailyUnits: 40,     // プールの再取得（videos.list・50件=1unit）の1日あたり上限
+};
+
+/**
+ * v4 グループランキング（2026-08-25 発注者改訂 第3弾）。リンクを知っている人だけが参加できる
+ * 匿名の共有リスト。保存は 動画ID・追加回数・時刻 のみで、「誰が」の概念は仕組み上存在しない。
+ * endpoint が空の間は完全に無効（タブも出さない・送信も取得もしない）。
+ * ゲートB（NEEDS_HUMAN.md）で workers/taps をデプロイしたら、その URL をここにも入れるだけ。
+ */
+export const GROUPS = {
+  endpoint: '',              // 例: 'https://trendzap-taps.<account>.workers.dev'（TAPS と同じ URL）
+  maxItems: 200,             // 1グループに残す動画数の上限（サーバー側と揃える）
+  pollMs: 30_000,            // 表示中のグループを再取得する間隔
+  storageKey: 'ytta.groups.v1', // 端末内に覚える「自分が入っているグループ」（名前は端末内のみ）
 };
 
 /** スナップショット保持（ORDER §8: 30日以内にリフレッシュまたは削除）。 */
@@ -147,6 +220,7 @@ export const LEARNING = {
 export const CONFIG = {
   COUNTRIES, SECTIONS, PERIODS, CATEGORIES, LANGUAGES, DEFAULT_LANG,
   MAP_COUNTRIES, AD_EVERY, QUOTA, SCHEDULE, RETENTION, LEARNING, TAPS, SEARCH_Q,
+  BACKFILL, GROUPS,
 };
 export default CONFIG;
 

@@ -11,6 +11,7 @@ import { join } from 'node:path';
 import { DATA_DIR, PREV_DIR, STATE_DIR, listDir, log, readJSON, removeFile, writeJSON } from './util.mjs';
 import { pruneShortsCache } from './shorts.mjs';
 import { pruneSnapshots } from './store.mjs';
+import { loadPool, poolCountries, poolPrune, savePool } from './backfill.mjs';
 import { RETENTION } from '../../public/js/config.js';
 
 const SHORTS_FILE = join(STATE_DIR, '_shorts_cache.json');
@@ -20,10 +21,10 @@ const SHORTS_FILE = join(STATE_DIR, '_shorts_cache.json');
  * @param {Date}   [o.now]
  * @param {object} [o.shortsCache] 呼び出し側が持っているキャッシュ（渡さなければファイルから読む）
  * @param {boolean}[o.saveShorts]  キャッシュをここで書き戻すか（collect.mjs は自分で書くので false）
- * @returns {Promise<{snapshots:string[], prev:string[], datasets:string[], shorts:number}>}
+ * @returns {Promise<{snapshots:string[], prev:string[], datasets:string[], shorts:number, pool:number}>}
  */
 export async function runRetention({ now = new Date(), shortsCache = null, saveShorts = true } = {}) {
-  const out = { snapshots: [], prev: [], datasets: [], shorts: 0 };
+  const out = { snapshots: [], prev: [], datasets: [], shorts: 0, pool: 0 };
   const maxAgeMs = RETENTION.dataMaxAgeDays * 864e5;
   const tooOld = iso => {
     const ts = iso ? Date.parse(iso) : NaN;
@@ -63,9 +64,17 @@ export async function runRetention({ now = new Date(), shortsCache = null, saveS
   //    （消したまま index に残すと scripts/validate.mjs が落ちて公開できなくなる）
   if (out.datasets.length) await refreshIndexDatasets(now);
 
-  const total = out.snapshots.length + out.prev.length + out.datasets.length + out.shorts;
+  // 6. 全期間バックフィルの候補プール（30日）。毎日の poolrefresh が回っていれば実際には
+  //    ここまで来ない。キーの失効等でリフレッシュが止まっても保持期間だけは守る最終防衛。
+  for (const code of await poolCountries()) {
+    const pool = await loadPool(code);
+    const removed = poolPrune(pool, { maxAgeDays: RETENTION.dataMaxAgeDays, now: now.getTime() });
+    if (removed) { await savePool(code, pool); out.pool += removed; }
+  }
+
+  const total = out.snapshots.length + out.prev.length + out.datasets.length + out.shorts + out.pool;
   if (total) {
-    log.info(`retention: snapshots ${out.snapshots.length}, prev ${out.prev.length}, datasets ${out.datasets.length}, shorts-cache ${out.shorts}`);
+    log.info(`retention: snapshots ${out.snapshots.length}, prev ${out.prev.length}, datasets ${out.datasets.length}, shorts-cache ${out.shorts}, pool ${out.pool}`);
   }
   return out;
 }

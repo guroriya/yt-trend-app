@@ -12,7 +12,7 @@
 
 import { join } from 'node:path';
 import {
-  COUNTRIES, SECTIONS, PERIODS, MAP_COUNTRIES, QUOTA, RETENTION, SEARCH_Q, datasetId,
+  BACKFILL, COUNTRIES, SECTIONS, PERIODS, MAP_COUNTRIES, QUOTA, RETENTION, SEARCH_Q, datasetId,
 } from '../public/js/config.js';
 import {
   DATA_DIR, STATE_DIR, chunk, ensureDir, listDir, log, parseArgs, quotaDate, readJSON, writeJSON,
@@ -32,6 +32,10 @@ import {
 } from './lib/store.mjs';
 import { rankTerms } from './lib/tags.mjs';
 import { runRetention } from './lib/retention.mjs';
+import {
+  BACKFILL_FILE, backfillWindows, loadPool, poolCountries, poolEvict, poolApplyRefresh,
+  poolStaleIds, poolUpsert, rebuildRanking, savePool,
+} from './lib/backfill.mjs';
 
 const BUDGET_FILE = join(STATE_DIR, '_budget.json');
 const SHORTS_FILE = join(STATE_DIR, '_shorts_cache.json');
@@ -43,7 +47,18 @@ const nowISO = now.toISOString();
 
 /* ------------------------------------------------------------- 予算と状態 */
 
-const plan = planSchedule({ dailyUnits: QUOTA.dailyUnits });
+/* バックフィル（全期間の遡り収集）の進み具合。窓の一覧は config から毎回決定的に作るので、
+   state に持つのは国ごとのカーソルと完了フラグだけ（詳細は scripts/lib/backfill.mjs）。 */
+const backfillState = (await readJSON(BACKFILL_FILE, null)) || { startedAt: null, countries: {} };
+const bfWindows = backfillWindows(BACKFILL, now);
+const bfCursorOf = code => Math.min(backfillState.countries[code]?.cursor ?? 0, bfWindows.length);
+const bfAllDone = COUNTRIES.every(c => backfillState.countries[c.code]?.done || bfCursorOf(c.code) >= bfWindows.length);
+
+/* 定常ジョブに使わせない予約枠。バックフィル中は 窓ぶん＋リフレッシュぶん、完走後はリフレッシュぶんだけ。 */
+const reservedUnits = !BACKFILL.enabled ? 0
+  : (bfAllDone ? BACKFILL.refreshDailyUnits : BACKFILL.dailyUnits + BACKFILL.refreshDailyUnits);
+
+const plan = planSchedule({ dailyUnits: QUOTA.dailyUnits, reservedUnits });
 log.step('budget plan');
 console.log(formatPlan(plan));
 
@@ -79,6 +94,9 @@ async function persistState() {
     await writeJSON(BUDGET_FILE, budget, { pretty: true });
     await writeJSON(SHORTS_FILE, shortsCache);
     await writeJSON(LASTRUN_FILE, { lastRun, cursor }, { pretty: true });
+    if (BACKFILL.enabled || backfillState.startedAt) {
+      await writeJSON(BACKFILL_FILE, backfillState, { pretty: true });
+    }
   } catch (err) {
     log.warn(`could not persist state: ${err.message}`);
   }
@@ -113,9 +131,24 @@ const overdueOf = j => {
 };
 dueJobs.sort((a, b) => (overdueOf(b) - overdueOf(a)) || (a.priority - b.priority));
 
+/* バックフィルと poolrefresh は SCHEDULE のジョブではない（1回きり／自己制限つき）ので別枠で判定。 */
+const bfSpentToday = jobId => budget.byJob[jobId] || 0;
+const backfillWanted = BACKFILL.enabled && !bfAllDone
+  && (!requested || requested.includes('backfill'))
+  && bfSpentToday('backfill') + QUOTA.costSearch + QUOTA.costVideos <= BACKFILL.dailyUnits;
+const refreshWanted = BACKFILL.enabled
+  && (!requested || requested.includes('poolrefresh'))
+  && bfSpentToday('poolrefresh') + QUOTA.costVideos <= BACKFILL.refreshDailyUnits
+  && (await poolCountries()).length > 0;
+
 log.step('jobs');
 log.info(`spent today: ${budget.spent} / ${QUOTA.dailyUnits} units (hard stop ${HARD_STOP})`);
 log.info(`due: ${dueJobs.map(j => j.id).join(', ') || '(none)'}`);
+if (BACKFILL.enabled) {
+  const doneWindows = COUNTRIES.reduce((s, c) => s + bfCursorOf(c.code), 0);
+  log.info(`backfill: ${doneWindows}/${bfWindows.length * COUNTRIES.length} windows`
+    + `${bfAllDone ? ' (complete)' : ''} — reserve ${reservedUnits} u/day`);
+}
 
 if (args['dry-run']) {
   log.step('dry run — no API calls were made');
@@ -124,6 +157,13 @@ if (args['dry-run']) {
     log.info(`${j.id}: ${lists.length} list(s), ${j.costPerRun} units`);
     lists.slice(0, 4).forEach(l => log.info(`   ${datasetId(l.country, l.section, l.period, l.category)} (${l.size})`));
     if (lists.length > 4) log.info(`   … +${lists.length - 4} more`);
+  }
+  if (backfillWanted) {
+    const left = COUNTRIES.map(c => `${c.code} ${bfCursorOf(c.code)}/${bfWindows.length}`).join(', ');
+    const remainUnits = (bfWindows.length * COUNTRIES.length - COUNTRIES.reduce((s, c) => s + bfCursorOf(c.code), 0))
+      * (QUOTA.costSearch + QUOTA.costVideos);
+    log.info(`backfill: ${left} — ~${remainUnits} units left, `
+      + `~${Math.ceil(remainUnits / Math.max(1, BACKFILL.dailyUnits))} day(s) at ${BACKFILL.dailyUnits} u/day`);
   }
   process.exit(0);
 }
@@ -136,7 +176,7 @@ if (!apiKey) {
   process.exit(0);
 }
 
-if (!dueJobs.length) {
+if (!dueJobs.length && !backfillWanted && !refreshWanted) {
   log.done('nothing due — exiting without touching public/data');
   process.exit(0);
 }
@@ -222,6 +262,10 @@ async function collectList(desc, { adaptive = false } = {}) {
 /** 国ごとの母集団（tags と growth が使う）。videoId → item */
 const pools = new Map(COUNTRIES.map(c => [c.code, new Map()]));
 const allSeen = new Map();           // スナップショット用（国をまたいだ和集合）
+/* この実行で API から実際に取った動画（候補プールへの還流用）。
+   pools は後段で公開中 JSON からも埋まる（＝取得が古い）ので、fetchedAt を「今」にして
+   よいのはこちらだけ（ORDER §8: プールの中身は常に30日以内の取得値でなければならない）。 */
+const freshByCountry = new Map(COUNTRIES.map(c => [c.code, new Map()]));
 const written = [];
 
 /**
@@ -276,7 +320,8 @@ async function runListJob(jobId) {
       });
       written.push(res);
       const bucket = pools.get(desc.country);
-      items.forEach(i => { bucket?.set(i.videoId, i); allSeen.set(i.videoId, i); });
+      const freshBucket = freshByCountry.get(desc.country);
+      items.forEach(i => { bucket?.set(i.videoId, i); freshBucket?.set(i.videoId, i); allSeen.set(i.videoId, i); });
       log.done(`${id}: ${items.length} items`);
     } catch (err) {
       if (err instanceof QuotaExceededError) throw err;
@@ -304,7 +349,9 @@ async function runMapJob() {
     try {
       // その国の「人気チャート1位」をそのまま代表にする。再生数の絶対値で選び直すと、
       // 世界的にバズった同じ動画が何か国もの代表になってしまう（2026-08-25 発注者指摘）。
-      const top = await yt.mostPopular({ regionCode: mc.code, maxResults: 5, costVideos: QUOTA.costVideos });
+      // maxResults を 10 にしても費用は同じ 1 unit。上位10本は top としてミニリストに出す
+      // （2026-08-25 発注者改訂 第3弾「地図拡充」）。
+      const top = await yt.mostPopular({ regionCode: mc.code, maxResults: 10, costVideos: QUOTA.costVideos });
       const ranked = top.filter(v => v.viewCount != null);
       // それでも重なるときは、まだ使っていない上位の動画に譲る（同じ絵が並ぶのを避ける）。
       const best = ranked.find(v => !usedVideoIds.has(v.videoId)) || ranked[0];
@@ -312,14 +359,22 @@ async function runMapJob() {
       usedVideoIds.add(best.videoId);
       // normalizeVideo は isShort:false 固定。長さから補正したものを母集団にも入れる
       // （補正前を入れると「伸び」ランキングの部門分けが全部 video 側に寄る）。
-      const item = { ...best, isShort: best.durationSec > 0 && best.durationSec <= SHORT_MAX_SEC };
+      const withShort = v => ({ ...v, isShort: v.durationSec > 0 && v.durationSec <= SHORT_MAX_SEC });
+      const item = withShort(best);
       items.push({
         country: mc.code, lat: mc.lat, lon: mc.lon,
         videoId: item.videoId, title: item.title, channelTitle: item.channelTitle,
         viewCount: item.viewCount, isShort: item.isShort,
+        top: ranked.slice(0, 10).map(withShort).map(v => ({
+          videoId: v.videoId, title: v.title, channelTitle: v.channelTitle,
+          viewCount: v.viewCount, isShort: v.isShort,
+        })),
       });
-      allSeen.set(item.videoId, item);
-      pools.get(mc.code)?.set(item.videoId, item);
+      for (const v of ranked.map(withShort)) {
+        allSeen.set(v.videoId, v);
+        pools.get(mc.code)?.set(v.videoId, v);
+        freshByCountry.get(mc.code)?.set(v.videoId, v);
+      }
     } catch (err) {
       if (err instanceof QuotaExceededError) throw err;
       log.warn(`map ${mc.code}: ${err.message}`);
@@ -364,6 +419,157 @@ async function runTagsJob() {
     const ranked = rankTerms(items, { prevRanks });
     await writeTags({ country: c.code, period: '24h', items: ranked, generatedAt: nowISO });
     log.done(`tags-${c.code}: ${ranked.length} terms`);
+  }
+}
+
+/* --------------------------------------------- バックフィル（ORDER §2-1 改訂 / BACKFILL） */
+
+/**
+ * 年窓を1つずつ歩いて候補プールを埋める。1窓 = search 1ページ + videos.list = 101 units。
+ * 1日の消費は BACKFILL.dailyUnits で自己制限し、窓カーソルは国ごとに state に残す（冪等）。
+ * @returns {Promise<boolean>} 今回1窓でも取ったら true
+ */
+let poolsTouched = false;            // rebuildFromPool を呼ぶかどうか（毎時の delta 乱高下よけ）
+
+async function runBackfillJob() {
+  if (!backfillWanted) return false;
+  currentJob = 'backfill';
+  if (!backfillState.startedAt) backfillState.startedAt = nowISO;
+  log.step(`backfill — ${bfWindows.length} window(s) × ${COUNTRIES.length} countries`);
+  let ran = false;
+  for (const c of COUNTRIES) {
+    const st = backfillState.countries[c.code] ||= { cursor: 0, done: false };
+    if (st.done || st.cursor >= bfWindows.length) { st.done = true; continue; }
+    const pool = await loadPool(c.code);
+    let dirty = false;
+    try {
+      while (st.cursor < bfWindows.length) {
+        const windowCost = QUOTA.costSearch + QUOTA.costVideos;
+        if ((budget.byJob.backfill || 0) + windowCost > BACKFILL.dailyUnits) {
+          log.info(`backfill: daily reserve used (${budget.byJob.backfill || 0}/${BACKFILL.dailyUnits})`);
+          break;
+        }
+        if (!canSpend(windowCost)) break;
+        const w = bfWindows[st.cursor];
+        const res = await yt.search({
+          regionCode: c.code,
+          publishedAfter: w.after,
+          publishedBefore: w.before,
+          videoDuration: w.section === 'shorts' ? 'short' : undefined,
+          q: searchQFor(c.code),
+          maxResults: QUOTA.pageSize,
+          costSearch: QUOTA.costSearch,
+        });
+        const details = res.ids.length
+          ? await yt.videos([...new Set(res.ids)], { costVideos: QUOTA.costVideos })
+          : [];
+        const candidates = details.filter(d => d.durationSec > 0 && d.durationSec <= SHORT_MAX_SEC);
+        const { decided } = await confirmShorts(candidates, shortsCache, { now: now.getTime() });
+        const items = details.map(d => ({ ...d, isShort: decided.get(d.videoId) ?? false }));
+        poolUpsert(pool, items, nowISO);
+        dirty = true;
+        ran = true;
+        poolsTouched = true;
+        st.cursor++;
+        // 古い年代の窓が 50 件未満しか返さないのは正常（プールに足すだけなので問題ない）。
+        log.done(`backfill ${c.code} ${w.section} ${w.after.slice(0, 10)}〜${w.before.slice(0, 10)}: `
+          + `${items.length} videos (${st.cursor}/${bfWindows.length})`);
+        await persistState();                     // 消費とカーソルは窓単位で確実に残す
+      }
+      if (st.cursor >= bfWindows.length) {
+        st.done = true;
+        log.done(`backfill ${c.code}: all ${bfWindows.length} windows walked`);
+      }
+    } finally {
+      // 予算切れ・quotaExceeded で抜けても、取れたぶんのプールは必ず書き残す。
+      if (dirty) { poolEvict(pool, BACKFILL.poolMaxPerCountry); await savePool(c.code, pool); }
+      await persistState();
+    }
+    if ((budget.byJob.backfill || 0) + QUOTA.costSearch + QUOTA.costVideos > BACKFILL.dailyUnits
+      || !canSpend(QUOTA.costSearch)) break;     // 予約を使い切った。残りの国は次回
+  }
+  return ran;
+}
+
+/**
+ * 候補プールの中身を古い順に videos.list で取り直す（50件 = 1 unit / ORDER §8 のリフレッシュ）。
+ * @returns {Promise<boolean>} 今回1回でも取り直したら true
+ */
+async function runPoolRefresh() {
+  if (!refreshWanted) return false;
+  currentJob = 'poolrefresh';
+  let ran = false;
+  for (const code of await poolCountries()) {
+    const pool = await loadPool(code);
+    let dirty = false;
+    while ((budget.byJob.poolrefresh || 0) + QUOTA.costVideos <= BACKFILL.refreshDailyUnits
+      && canSpend(QUOTA.costVideos)) {
+      // 今日すでに触った項目まで取り直すと無限に回るので、1日より新しいものは対象外。
+      const stale = poolStaleIds(pool, { limit: QUOTA.pageSize, now: now.getTime() })
+        .filter(id => now.getTime() - Date.parse(pool[id].fetchedAt || 0) > 864e5);
+      if (!stale.length) break;
+      const fresh = await yt.videos(stale, { costVideos: QUOTA.costVideos });
+      poolApplyRefresh(pool, stale, fresh, nowISO);
+      dirty = ran = poolsTouched = true;
+    }
+    if (dirty) await savePool(code, pool);
+  }
+  if (ran) log.done(`poolrefresh: ${budget.byJob.poolrefresh || 0} units today`);
+  return ran;
+}
+
+/**
+ * この実行で API から取った動画を候補プールへ還流する（0 units）。
+ * 24h・週間・月間・地図の上位が全期間ランキングの候補として貯まっていく。
+ */
+async function feedPools() {
+  if (!BACKFILL.enabled) return;
+  for (const c of COUNTRIES) {
+    const items = [...(freshByCountry.get(c.code)?.values() || [])];
+    if (!items.length) continue;
+    const pool = await loadPool(c.code);
+    if (!Object.keys(pool).length && !backfillState.countries[c.code]) continue;  // プールはバックフィルが最初に作る
+    poolUpsert(pool, items, nowISO);
+    poolEvict(pool, BACKFILL.poolMaxPerCountry);
+    await savePool(c.code, pool);
+  }
+}
+
+/**
+ * プールから year / all の総合ランキングを再構成して公開する（0 units）。
+ * 毎時の delta 乱高下を避けるため、バックフィルか poolrefresh が実際に動いた実行だけ呼ぶ。
+ * カテゴリ別（catyearall）のプール化は BACKLOG（プールに categoryId は保存済み）。
+ */
+async function rebuildFromPool() {
+  currentJob = 'rebuild';
+  log.step('rebuild year/all from pool — 0 units');
+  for (const c of COUNTRIES) {
+    const pool = await loadPool(c.code);
+    if (!Object.keys(pool).length) continue;
+    for (const s of SECTIONS) {
+      for (const pid of ['year', 'all']) {
+        const days = PERIODS.find(p => p.id === pid)?.days ?? null;
+        const raw = rebuildRanking(pool, { section: s.id, days, size: 100, now });
+        if (!raw.length) continue;                // 空で上書きしない（前回を残す）
+        const id = datasetId(c.code, s.id, pid, 'all');
+        // search 由来の既存リストより極端に痩せた結果で上書きしない（runListJob と同じガード）。
+        const prevCount = (await readJSON(join(DATA_DIR, `${id}.json`), null))?.items?.length || 0;
+        if (prevCount >= 20 && raw.length < prevCount / 2) {
+          log.warn(`${id}: pool rebuild has ${raw.length} vs ${prevCount} published — keeping the previous file`);
+          continue;
+        }
+        const { ranks, generatedAt: prevGeneratedAt } = await loadPrevRanks(id);
+        const items = applyRanks(raw, ranks);
+        const res = await writeList({
+          country: c.code, section: s.id, period: pid, category: 'all',
+          items,
+          windowStart: days == null ? null : new Date(now.getTime() - days * 864e5).toISOString(),
+          generatedAt: nowISO, prevGeneratedAt,
+        });
+        written.push(res);
+        log.done(`${id}: ${items.length} items (from pool)`);
+      }
+    }
   }
 }
 
@@ -433,6 +639,10 @@ try {
     else log.warn(`${job.id}: incomplete — will be retried on the next run`);
     await persistState();                                 // ジョブ単位で確実に残す
   }
+  // バックフィルと poolrefresh は SCHEDULE 外の別枠（予約 units の範囲で自己制限する）。
+  // 定常ジョブの後に回すことで、初回取得や日々の更新を遡り収集が妨げない。
+  await runBackfillJob();
+  await runPoolRefresh();
 } catch (err) {
   if (err instanceof QuotaExceededError) {
     quotaHalted = true;
@@ -456,6 +666,9 @@ if (!fatal) {
     const feature = await growthFeature(PERIODS, now);
     await seedPoolsFromPublished();
     await runGrowth(feature);
+
+    await feedPools();                          // 0 units: 今回取ったぶんを候補プールへ還流
+    if (poolsTouched) await rebuildFromPool();  // 0 units: year/all をプールから再構成
 
     // 母集団は公開中の JSON なので、今回1本も書けていなくても集計できる。
     if (dueJobs.some(j => j.id === 'tags') || written.length || quotaHalted) {
@@ -492,11 +705,21 @@ for (const f of await listDir(DATA_DIR)) {
 }
 
 const feature = await growthFeature(PERIODS, now);
+// 遡り収集の進み具合（UI の「全期間ランキングを拡充中 (n/total)」表示に使う）。
+const bfDoneWindows = COUNTRIES.reduce((s, c) => s + bfCursorOf(c.code), 0);
+const bfTotalWindows = bfWindows.length * COUNTRIES.length;
 await writeIndex({
   source: 'youtube-api',
   countries: COUNTRIES.map(c => c.code),
   datasets,
-  features: { growth: feature, map: true, tags: true },
+  features: {
+    growth: feature, map: true, tags: true,
+    backfill: {
+      active: BACKFILL.enabled && bfDoneWindows < bfTotalWindows,
+      done: bfDoneWindows,
+      total: bfTotalWindows,
+    },
+  },
   quota: {
     spentToday: budget.spent,
     dailyUnits: QUOTA.dailyUnits,

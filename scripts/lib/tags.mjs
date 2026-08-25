@@ -22,22 +22,48 @@ const STOP_JA = new Set(`
 本編 前編 後編 第一話 実況 放送 配信 生放送 期間 限定 今日 明日 今回
 `.trim().split(/\s+/));
 
-/** タイトル＋タグから語を取り出す。日本語は形態素解析が使えないので保守的に切る。 */
+/* 2026-08-25 発注者改訂（第3弾）で IN/BR（＋増枠後 FR/DE）を追加。
+   config.js の SEARCH_Q は「その言語のほぼ全動画が含む語」を全 search に渡すため、
+   ストップワードに入れておかないと各国のワードランキング上位をその語が占拠する。 */
+const STOP_LATIN_EXTRA = new Set(`
+de que em para com uma um os as dos das mais como por sem seu sua
+le la les des du et en une est pour qui dans sur au aux ce cette pas
+der die und das mit ist im für auf den dem ein eine nicht von zu bei
+`.trim().split(/\s+/));
+
+const STOP_HI = new Set(`
+के में है की का को से पर और भी नहीं हो गया कर रहा रही वाला यह वह
+हैं था थी इस उस अब तो ही कुछ लिए
+`.trim().split(/\s+/));
+
+const STOP_KO = new Set(`
+오늘 이번 영상 공식 최신 실시간 하는 있는 없는 그리고 하지만 진짜 정말
+`.trim().split(/\s+/));
+
+/** タイトル＋タグから語を取り出す。形態素解析が使えないので文字種ごとに保守的に切る。 */
 export function extractTerms(item) {
   const out = new Set();
+  const stopped = v => STOP_EN.has(v) || STOP_JA.has(v) || STOP_LATIN_EXTRA.has(v)
+    || STOP_HI.has(v) || STOP_KO.has(v);
   for (const raw of (item.tags || []).slice(0, 8)) {
     const v = String(raw).trim().toLowerCase();
-    if (v.length >= 2 && v.length <= 24 && !STOP_EN.has(v) && !STOP_JA.has(v)) out.add(v);
+    if (v.length >= 2 && v.length <= 24 && !stopped(v)) out.add(v);
   }
   const title = String(item.title || '');
   for (const w of title.toLowerCase().match(/[a-z][a-z0-9'-]{2,}/g) || []) {
-    if (!STOP_EN.has(w)) out.add(w);
+    if (!STOP_EN.has(w) && !STOP_LATIN_EXTRA.has(w)) out.add(w);
   }
   for (const w of title.match(/[ァ-ヴー]{3,}/g) || []) {          // カタカナ語
     if (!STOP_JA.has(w)) out.add(w);
   }
   for (const w of title.match(/[一-龥]{2,4}/g) || []) {           // 漢字の連なり
     if (!STOP_JA.has(w)) out.add(w);
+  }
+  for (const w of title.match(/[가-힣]{2,}/g) || []) {            // ハングル（KR）
+    if (!STOP_KO.has(w)) out.add(w);
+  }
+  for (const w of title.match(/[ऀ-ॿ]{2,}/g) || []) {    // デーヴァナーガリー（IN）
+    if (!STOP_HI.has(w)) out.add(w);
   }
   return [...out];
 }
@@ -72,4 +98,4 @@ export function rankTerms(items, { prevRanks = new Map(), size = 24, minCount = 
   });
 }
 
-export const STOPWORDS = { en: STOP_EN, ja: STOP_JA };
+export const STOPWORDS = { en: STOP_EN, ja: STOP_JA, latin: STOP_LATIN_EXTRA, hi: STOP_HI, ko: STOP_KO };

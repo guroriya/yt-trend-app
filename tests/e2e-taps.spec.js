@@ -30,14 +30,16 @@ const CORS = {
   'access-control-allow-headers': 'content-type',
 };
 
-/** config.js の endpoint をテスト用に書き換えて配る（実値が何であっても上書きできる）。 */
+/** config.js の TAPS.endpoint をテスト用に書き換えて配る（実値が何であっても上書きできる）。
+    endpoint: '' は GROUPS にもあるので、TAPS ブロックの中だけを狙う（v4 で2箇所になった）。 */
 async function routeConfigWithEndpoint(page, endpoint) {
   const src = fs.readFileSync(path.join(PUBLIC_DIR, 'js', 'config.js'), 'utf8');
-  expect(src).toMatch(/endpoint: '[^']*'/);
+  const re = /(export const TAPS = \{\s*\n\s*)endpoint: '[^']*'/;
+  expect(src).toMatch(re);
   await page.route('**/js/config.js', route => route.fulfill({
     status: 200,
     contentType: 'text/javascript',
-    body: src.replace(/endpoint: '[^']*'/, `endpoint: '${endpoint}'`),
+    body: src.replace(re, `$1endpoint: '${endpoint}'`),
   }));
 }
 

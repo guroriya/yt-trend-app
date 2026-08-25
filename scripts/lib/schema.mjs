@@ -51,6 +51,17 @@ export function validateIndex(o) {
   if (typeof o.features?.map !== 'boolean') e.push('index.json: features.map must be a boolean');
   if (typeof o.features?.tags !== 'boolean') e.push('index.json: features.tags must be a boolean');
 
+  // 全期間バックフィル（2026-08-25 発注者改訂 第3弾）。旧データとの互換のため任意フィールド。
+  const bf = o.features?.backfill;
+  if (bf !== undefined) {
+    if (typeof bf?.active !== 'boolean') e.push('index.json: features.backfill.active must be a boolean');
+    if (!isNum(bf?.done)) e.push('index.json: features.backfill.done must be a number');
+    if (!isNum(bf?.total)) e.push('index.json: features.backfill.total must be a number');
+    if (isNum(bf?.done) && isNum(bf?.total) && bf.done > bf.total) {
+      e.push('index.json: features.backfill.done must not exceed total');
+    }
+  }
+
   if (!o.quota || !isNum(o.quota.spentToday) || !isNum(o.quota.dailyUnits) || typeof o.quota.degraded !== 'boolean') {
     e.push('index.json: quota must be { spentToday:number, dailyUnits:number, degraded:boolean }');
   }
@@ -143,6 +154,19 @@ export function validateMap(o) {
     if (!isStr(it.title)) e.push(`${where}: title must be a string`);
     if (!isNumOrNull(it.viewCount)) e.push(`${where}: viewCount must be a number or null`);
     if (typeof it.isShort !== 'boolean') e.push(`${where}: isShort must be a boolean`);
+    // 各国のトップ10ミニリスト（2026-08-25 第3弾「地図拡充」）。旧データとの互換のため任意。
+    if (it.top !== undefined) {
+      if (!Array.isArray(it.top)) e.push(`${where}: top must be an array`);
+      else {
+        if (it.top.length > 10) e.push(`${where}: top must hold at most 10 entries`);
+        it.top.forEach((t, j) => {
+          if (!isStr(t.videoId)) e.push(`${where}.top[${j}]: videoId must be a string`);
+          if (!isStr(t.title)) e.push(`${where}.top[${j}]: title must be a string`);
+          if (!isNumOrNull(t.viewCount)) e.push(`${where}.top[${j}]: viewCount must be a number or null`);
+          if (typeof t.isShort !== 'boolean') e.push(`${where}.top[${j}]: isShort must be a boolean`);
+        });
+      }
+    }
   });
   return e;
 }

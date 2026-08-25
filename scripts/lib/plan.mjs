@@ -48,22 +48,24 @@ export function listsOfJob(jobId) {
     case 'yearall':
       eachCS((c, s) => ['year', 'all'].forEach(p => push(c, s, p, 'all')));
       break;
-    // カテゴリ別は期間帯ごとに別ジョブ（更新頻度が違う。2026-08-25 発注者改訂で全期間に拡張）
+    // カテゴリ別は期間ごとに別ジョブ（更新頻度が違う。2026-08-25 発注者改訂で全期間に拡張）。
+    // 6カ国化で「1回の費用 < 1日のハード停止」を守るため、旧 catweekmonth / catyearall は
+    // 期間単位の4ジョブに分割した（config.js SCHEDULE の不変条件コメント参照）。
     case 'categories':
       eachCS((c, s) => CATEGORIES.filter(x => x.id !== 'all').forEach(cat => {
         cat.periods.filter(p => p === '24h').forEach(p => push(c, s, p, cat.id));
       }));
       break;
-    case 'catweekmonth':
+    case 'catweek':
+    case 'catmonth':
+    case 'catyear':
+    case 'catall': {
+      const period = { catweek: 'week', catmonth: 'month', catyear: 'year', catall: 'all' }[jobId];
       eachCS((c, s) => CATEGORIES.filter(x => x.id !== 'all').forEach(cat => {
-        cat.periods.filter(p => p === 'week' || p === 'month').forEach(p => push(c, s, p, cat.id));
+        cat.periods.filter(p => p === period).forEach(p => push(c, s, p, cat.id));
       }));
       break;
-    case 'catyearall':
-      eachCS((c, s) => CATEGORIES.filter(x => x.id !== 'all').forEach(cat => {
-        cat.periods.filter(p => p === 'year' || p === 'all').forEach(p => push(c, s, p, cat.id));
-      }));
-      break;
+    }
     case 'map':
     case 'tags':
       break;                       // リストは取らない（下の costOfJob で扱う）
@@ -89,10 +91,14 @@ const faster = h => [...LADDER].reverse().find(v => v < h) ?? LADDER[0];
 
 /**
  * 予算に収まるスケジュールを決める。
- * @returns {{jobs: Array, dailyUnits: number, softLimit: number, total: number, degraded: boolean, upgraded: boolean}}
+ * @param {object} [o]
+ * @param {number} [o.dailyUnits]
+ * @param {number} [o.reservedUnits] 定常ジョブに使わせない予約枠（バックフィル用）。
+ *   ソフト上限から差し引くだけで、降格・昇格・スキップの既存ロジックはそのまま働く。
+ * @returns {{jobs: Array, dailyUnits: number, softLimit: number, reservedUnits: number, total: number, degraded: boolean, upgraded: boolean}}
  */
-export function planSchedule({ dailyUnits = QUOTA.dailyUnits } = {}) {
-  const softLimit = Math.floor(dailyUnits * QUOTA.softLimitRatio);
+export function planSchedule({ dailyUnits = QUOTA.dailyUnits, reservedUnits = 0 } = {}) {
+  const softLimit = Math.max(0, Math.floor(dailyUnits * QUOTA.softLimitRatio) - Math.max(0, reservedUnits | 0));
   const jobs = SCHEDULE.jobs.map(j => ({
     ...j,
     costPerRun: costOfJob(j.id),
@@ -158,6 +164,7 @@ export function planSchedule({ dailyUnits = QUOTA.dailyUnits } = {}) {
     })),
     dailyUnits,
     softLimit,
+    reservedUnits: Math.max(0, reservedUnits | 0),
     total: Math.round(total()),
     degraded,
     upgraded,
@@ -182,7 +189,8 @@ export function formatPlan(plan) {
     return `  ${j.id.padEnd(13)} every ${every.padEnd(9)} ${String(j.costPerRun).padStart(5)} u/run  ${String(j.dailyUnits).padStart(6)} u/day`;
   });
   return [
-    `plan: ${plan.total} / ${plan.dailyUnits} units per day (soft limit ${plan.softLimit})`,
+    `plan: ${plan.total} / ${plan.dailyUnits} units per day (soft limit ${plan.softLimit}`
+      + `${plan.reservedUnits ? `, ${plan.reservedUnits} reserved for backfill` : ''})`,
     ...rows,
     plan.degraded ? '  ! degraded to stay inside the quota' : '',
     plan.upgraded ? '  + upgraded because quota headroom allows it' : '',
