@@ -410,6 +410,8 @@ async function runGrowth(feature) {
 
 let quotaHalted = false;
 let fatal = null;
+
+// ── 1段目: API を使う収集。割当を使い切ったらここで止まる。
 try {
   for (const job of dueJobs) {
     let complete = true;
@@ -421,16 +423,6 @@ try {
     else log.warn(`${job.id}: incomplete — will be retried on the next run`);
     await persistState();                                 // ジョブ単位で確実に残す
   }
-
-  if (allSeen.size) await appendSnapshot([...allSeen.values()], now);
-  const feature = await growthFeature(PERIODS, now);
-  await seedPoolsFromPublished();
-  await runGrowth(feature);
-
-  if (dueJobs.some(j => j.id === 'tags') || written.length) {
-    await runTagsJob();
-    lastRun.tags = nowISO;
-  }
 } catch (err) {
   if (err instanceof QuotaExceededError) {
     quotaHalted = true;
@@ -441,6 +433,31 @@ try {
   }
 } finally {
   await persistState();
+}
+
+/* ── 2段目: API を1 unit も使わない後工程（スナップショット・伸び・ワード集計）。
+   1段目と同じ try に入れていたため、予算切れで止まった日は丸ごと飛ばされていた。
+   予算を使い切る日が普通にある設計（docs/BUDGET.md）なので、公開中の tags が
+   いつまでも作られない実害が出ていた（2026-08-25 実データで発覚）。
+   致命的エラー（fatal）のときだけは、壊れた状態で上書きしないよう飛ばす。 */
+if (!fatal) {
+  try {
+    if (allSeen.size) await appendSnapshot([...allSeen.values()], now);
+    const feature = await growthFeature(PERIODS, now);
+    await seedPoolsFromPublished();
+    await runGrowth(feature);
+
+    // 母集団は公開中の JSON なので、今回1本も書けていなくても集計できる。
+    if (dueJobs.some(j => j.id === 'tags') || written.length || quotaHalted) {
+      await runTagsJob();
+      lastRun.tags = nowISO;
+    }
+  } catch (err) {
+    // ここで落ちても収集済みのデータは守る（後工程は次回また回る）
+    log.warn(`post-processing failed: ${err.message}`);
+  } finally {
+    await persistState();
+  }
 }
 
 /* -------------------------------------------------------- 後始末と index */
