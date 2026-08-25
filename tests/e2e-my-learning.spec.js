@@ -163,8 +163,10 @@ test.describe('端末内学習', () => {
     const name = (await first.locator('.insp-name').textContent()).trim();
     await first.locator(`button[aria-label^="${EN['my.remove']}"]`).click();
 
-    await expect(rows).toHaveCount(before - 1);
+    // 仕様の核は「その1件が消える」こと。行数は各グループ上位12件表示（renderInspector の
+    // slice(0,12)）のため、溢れた分が繰り上がると減らない。増えていないことだけ確かめる。
     await expect(page.locator('#my-inspector .insp-name', { hasText: name })).toHaveCount(0);
+    expect(await rows.count()).toBeLessThanOrEqual(before);
   });
 
   test('消せる: ミュートして、また戻せる', async ({ page }) => {

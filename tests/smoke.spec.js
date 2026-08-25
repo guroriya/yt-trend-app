@@ -84,7 +84,9 @@ test.describe('P0 スモーク', () => {
     await gotoApp(page, everyoneHash(), { hintSeen: false });
     const hint = page.locator('.hint');
     await expect(hint).toBeVisible();
-    await expect(hint).toContainText(I18N.en['hint.swipe']);
+    // hint.swipe は "{axis}" プレースホルダ入りの辞書文字列。実表示は軸名に置換される
+    await expect(hint).toContainText(
+      I18N.en['hint.swipe'].replace('{axis}', I18N.en['settings.swipeAxis.period']));
 
     await hint.getByRole('button', { name: I18N.en['hint.gotIt'] }).click();
     await expect(hint).toHaveCount(0);
