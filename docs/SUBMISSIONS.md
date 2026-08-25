@@ -125,3 +125,55 @@ no playback).
 - **再生**: アプリ内再生・埋め込みなし。すべて YouTube 本体へ転送
 - **収益**: 広告のみ。API データへのアクセスに課金しない
 - **商標**: 名称・ロゴは YouTube を模倣していない。非公式であることをアプリ内とストア説明に明記
+
+---
+
+## 5. YouTube API 割当増枠申請（ゲートF / YouTube API Services Audit form）
+
+フォーム: https://support.google.com/youtube/contact/yt_api_form
+申請額（Total daily quota needed）: **20,000 units/day**。以下をそのままコピペする。
+連絡先メール・Google Cloud のプロジェクト番号はフォームの指示に従い発注者のものを入れる。
+
+### API Client description（アプリの説明）
+
+```
+TrendZap is a free, ad-supported web app that shows YouTube trending rankings
+(24 hours / week / month / year / all-time, by country and by category) built on
+the YouTube Data API v3.
+
+- Public site: https://guroriya.github.io/yt-trend-app/
+- Privacy policy: https://guroriya.github.io/yt-trend-app/privacy.html
+- Terms of use: https://guroriya.github.io/yt-trend-app/terms.html
+- Source code (public): https://github.com/guroriya/yt-trend-app
+
+How it works: a scheduled server-side job (GitHub Actions) queries search.list and
+videos.list, publishes static JSON rankings, and the client only reads those files.
+End users never trigger API calls directly. Videos are not played or embedded;
+every item links out to youtube.com. "This product uses the YouTube API Services"
+is displayed permanently in the app footer.
+
+Compliance: stored API data is refreshed or deleted within 30 days (automated
+retention job in the repository); historical snapshots are deleted after 31 days.
+API data is not sold, not transferred to third parties, and metrics shown are
+YouTube's own public statistics, unmodified.
+```
+
+### Why more quota（増枠の理由）
+
+```
+Our current daily consumption is ~7,800 of the default 10,000 units (78%), which
+is the ceiling of what the default quota allows: rankings for 6 countries
+(JP / US / KR / GB / IN / BR) with the 24-hour ranking refreshed once per day and
+weekly/monthly rankings every 2-3 days.
+
+We want to serve 8 countries (adding FR / DE) and refresh weekly/monthly rankings
+daily, and category rankings every 2 days. Estimated daily usage at that
+configuration is ~16,000 units: roughly 158 search.list calls (15,800 units) and
+~220 videos.list calls (220 units) per day. 20,000 units/day gives that
+configuration a safe margin for retries.
+
+The job enforces a budget planner: it degrades refresh frequency automatically to
+stay inside the daily quota, hard-stops at 95%, and records consumption per
+endpoint. Quota is used only by the scheduled job; there is no user-triggered
+API traffic.
+```

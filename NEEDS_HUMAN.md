@@ -89,30 +89,42 @@ Settings →  Pages → **Build and deployment / Source** を `GitHub Actions` �
 
 ---
 
-## ゲートF（任意・急がない / 所要 20分＋審査）— API 割当の増枠申請
+## ゲートF（発注者指示 2026-08-25・所要 20分＋審査数週間）— API 割当の増枠申請（**20,000 で申請**）
 
-ORDER §4 の理想は「24時間ランキングは毎時更新」ですが、既定割当 10,000 units/日では
-物理的に不可能なため、**既定は6時間ごと**にしています（詳細は `docs/BUDGET.md`）。
-毎時に近づけたい場合のみ、Google に増枠を申請してください。
+> 2026-08-25 の発注者改訂（第3弾）で方針が変わりました:
+> 24時間ランキングは**毎日1回でよい**代わりに、**国別を強化**（国を増やす・週間/月間やカテゴリの
+> 更新を速く）します。浮いた予算と増枠をそこに充てます（詳細は `docs/BUDGET.md`）。
+> **増枠は無料**です（YouTube Data API に有料の追加割当は存在しません）。審査に数週間かかるので、
+> 早めに出しておくのがおすすめです。
 
-1. https://support.google.com/youtube/contact/yt_api_form を開く
-2. フォームに記入して送信（無料・審査あり・数週間かかることがあります）
-3. 通ったら `public/js/config.js` の `QUOTA.dailyUnits` を新しい値に書き換えるだけです。
-   **コードの変更は不要**。planner が自動で 6h → 4h → 3h → 2h → 1h と間隔を詰めます。
+1. https://support.google.com/youtube/contact/yt_api_form を開く（Google アカウントでログイン）
+2. フォームに記入して送信。**貼り付ける英語の文面は `docs/SUBMISSIONS.md` §5 にすべて用意してあります**。
+   フォームが求める公開ページも準備済みです:
+   - プライバシーポリシー: `https://guroriya.github.io/yt-trend-app/privacy.html`
+   - 利用規約: `https://guroriya.github.io/yt-trend-app/terms.html`
+   - 申請する1日あたりの割当（Total daily quota）: **20,000**
+3. 通ったら `public/js/config.js` の `QUOTA.dailyUnits` を `20000` に書き換えるだけです。
+   **コードの変更は不要**。planner が自動で更新間隔を詰めます
+   （8カ国化は Claude 側で `COUNTRIES` に FR/DE を足します。次のセッションで「増枠が通った」と
+   伝えてください）。
 
-| `dailyUnits` | 24時間ランキングの更新間隔 |
+| `dailyUnits` | できること（4カ国→の姿） |
 |---:|---|
-| 10,000（既定） | 6時間 |
-| 15,000 | 3時間 |
-| 20,000 | 2時間 |
-| 30,000 | 1時間（ORDER の理想） |
+| 10,000（既定） | **6カ国**（JP/US/KR/GB/IN/BR）・24hは毎日・週間/月間は2〜3日ごと |
+| **20,000（申請額）** | **8カ国**（+FR/DE）・週間/月間も**毎日**・カテゴリ別は2日ごと |
+| 50,000 | さらに国を増やす／24hランキングの1日複数回更新を再開する余地 |
+
+※ 24時間ランキングを再び高頻度（6時間ごと等）にしたくなったら、`config.js` の
+`SCHEDULE.jobs` で `top24h` の `desiredHours` を小さくするだけです（発注者の指示があれば Claude がやります）。
 
 ---
 
-## ゲートB（コードは準備済み / 急がない・v1 公開後でOK / 所要 15分）— Cloudflare
+## ゲートB（コードは準備済み / **グループ機能の解禁に必要** / 所要 15分）— Cloudflare
 
-v3「匿名タップ集計」（今日このアプリから何回飛んだか）のサーバーは `workers/taps/` に
-**実装済み**です。あとはデプロイだけ。ゲート0（Node 導入）が済んでいる前提で:
+v3「匿名タップ集計」と **v4「グループランキング」（2026-08-25 発注者指示の新機能:
+リンクを友達に送る→誰でも動画を追加→グループのランキングになる）** のサーバーは、
+どちらも `workers/taps/` に**実装済み**です。**1回のデプロイで両方が有効になります。**
+ゲート0（Node 導入）が済んでいる前提で:
 
 1. https://dash.cloudflare.com/sign-up で無料アカウントを作る（メール認証まで）
 2. PowerShell で（パスはスラッシュ区切りでそのまま通ります）:
@@ -136,7 +148,9 @@ npx wrangler deploy
 ```
 
 5. 出力される URL（`https://trendzap-taps.〜.workers.dev`）をコピーして、
-   `public/js/config.js` の `TAPS.endpoint: ''` に貼る（例: `endpoint: 'https://trendzap-taps.xxx.workers.dev'`）→ commit & push
+   `public/js/config.js` の **2箇所**に貼る → commit & push:
+   - `TAPS.endpoint: ''`（タップ集計）
+   - `GROUPS.endpoint: ''`（グループランキング。貼ると「グループ」タブが自動で現れます）
 6. 動作確認（P5 検収 = カウント → 表示に反映）。PowerShell にそのまま貼ってください
    （`あなたのURL` の部分だけ手順5の URL に置き換え）:
 
@@ -147,8 +161,18 @@ Invoke-RestMethod -Method Post -Uri https://あなたのURL.workers.dev/tap -Bod
 → `date=… total=1 countries=@{JP=1}` のように返り、アプリの「世界」タブに
 「今日、このアプリからYouTubeへ1回飛びました」が出れば完了です。
 
-> 無料枠の注意: KV の書き込みは 1日 1,000 回まで・同じキーへは 1秒に 1回まで。
+7. グループの検収（v4）。続けてそのまま:
+
+```
+$g = Invoke-RestMethod -Method Post -Uri https://あなたのURL.workers.dev/g ; Invoke-RestMethod -Method Post -Uri "https://あなたのURL.workers.dev/g/$($g.id)/add" -Body '{"videoId":"dQw4w9WgXcQ"}' ; Invoke-RestMethod "https://あなたのURL.workers.dev/g/$($g.id)"
+```
+
+→ `items` に1件返り、アプリの「グループ」タブでグループを作って動画を追加 →
+友達に招待リンクを送って相手の追加が反映されれば完了です。
+
+> 無料枠の注意: KV の書き込みは 1日 1,000 回まで・同じキーへは 1秒に 1回まで（タップとグループで共用）。
 > 上限に当たった分は**数え落とすだけ**で（Worker は正常応答を返す実装）、アプリ本体には影響しません。
+> グループの利用が伸びてきたら Durable Objects への移行を検討します（BACKLOG.md）。
 
 ## ゲートC（P6 で必要 / まだ着手不要）— Google Play Console（$25）／AdMob・AdSense 申請
 　→ 申請に使う文面はすべて `docs/SUBMISSIONS.md` に用意してあります（提出操作のみお願いします）

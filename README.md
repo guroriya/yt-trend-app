@@ -92,7 +92,8 @@ npm run collect                       # planner が決めた実行すべきジ�
 npm run validate                      # public/data/*.json を docs/SCHEMA.md に照らして検証
 ```
 
-`--jobs` に指定できるのは `top24h,weekmonth,categories,catweekmonth,yearall,catyearall,map,tags`。
+`--jobs` に指定できるのは `top24h,weekmonth,categories,catweek,catmonth,yearall,catyear,catall,map,tags`
+（および遡り収集の `backfill,poolrefresh`）。
 `--force` は間隔判定を無視して強制実行します（予算を食うので通常は使わない）。
 
 ---
@@ -116,85 +117,31 @@ URL は**ハッシュルーティング**です。例:
 
 ## 5. API 割当予算表（ORDER §4）
 
-**結論: 現行構成（4カ国・カテゴリ全期間）の消費は 1日あたり 7,837 units（既定割当 10,000 の 78.4%）**で、
-ソフト上限 8,000 units（80%）の下に収まっています。
-算出根拠と全ケースは [`docs/BUDGET.md`](docs/BUDGET.md) を参照。
-構成（国・カテゴリ）を増減するときは、**先に `docs/BUDGET.md` を更新してから**
-[`public/js/config.js`](public/js/config.js) を触ってください。
+**結論: 現行構成（6カ国・カテゴリ全期間・24h＝毎日）の定常消費は 1日あたり 7,823 units
+（既定割当 10,000 の 78.2%）**で、ソフト上限 8,000 units（80%）の下に収まっています。
+ジョブ別の内訳・遡り収集（バックフィル）・増枠後の姿を含む**予算の正本は
+[`docs/BUDGET.md`](docs/BUDGET.md)** です。最新値は `node scripts/collect.mjs --dry-run` で
+いつでも確認できます。
 
-### 5-1. 単価
+> **2026-08-25 発注者改訂（第3弾）**: 「24時間ランキングは当面毎日1回でよい。浮いた予算で国別を強く」。
+> top24h は毎日に固定（`desiredHours: 24` のキャップ）し、IN/BR を足して6カ国・地図60カ国・
+> 全期間の遡り収集（2005年〜）を追加しました。
 
-| 呼び出し | 単価 | 1回あたり取得数 |
-|---|---:|---:|
-| `search.list` | 100 units | 50 件 |
-| `videos.list`（id 指定・statistics） | 1 unit | 50 件 |
-| `videos.list`（`chart=mostPopular`） | 1 unit | 50 件 |
-| `https://www.youtube.com/shorts/{id}` の到達性チェック | **0 units** | 1 件 |
+要点だけ:
 
-1本のランキング（上位 N 件）の費用 = `ceil(N/50) × (100 + 1)`
-→ 50件 = **101 units** ／ 100件 = **202 units**
-
-### 5-2. ジョブ別の1回あたり費用（現行構成: **4カ国 × 2部門**・カテゴリは**全期間**）
-
-| ジョブ | 内訳 | 本数 | 1本 | 1回の費用 |
-|---|---|---:|---:|---:|
-| `top24h` 24時間・総合 | 4国 × 2部門 × 1期間 × 100件 | 8 | 202 | **1,616** |
-| `weekmonth` 週間・月間・総合 | 4国 × 2部門 × 2期間 × 100件 | 16 | 202 | **3,232** |
-| `categories` 24時間・カテゴリ別 | 4国 × 2部門 × 5カテゴリ × 50件 | 40 | 101 | **4,040** |
-| `catweekmonth` 週間・月間・カテゴリ別 | 4国 × 2部門 × 5カテゴリ × 2期間 | 80 | 101 | **8,080** |
-| `yearall` 年間・全期間・総合 | 4国 × 2部門 × 2期間 × 100件 | 16 | 202 | **3,232** |
-| `catyearall` 年間・全期間・カテゴリ別 | 4国 × 2部門 × 5カテゴリ × 2期間 | 80 | 101 | **8,080** |
-| `map` 世界地図（各国1位） | 26国 × `chart=mostPopular` | 26 | 1 | **26** |
-| `tags` タグ集計 | 既存 JSON の再集計のみ | – | 0 | **0** |
-
-### 5-3. 実効スケジュールと日次消費（planner の出力）
-
-| ジョブ | 実効間隔 | 1日の実行回数 | 日次 units |
-|---|---|---:|---:|
-| `top24h` | 8時間ごと | 3 | 4,848 |
-| `weekmonth` | 3日ごと | 1/3 | 1,077 |
-| `categories` | 7日ごと | 1/7 | 577 |
-| `map` | 日次 | 1 | 26 |
-| `catweekmonth` | 14日ごと | 1/14 | 577 |
-| `yearall` | 7日ごと | 1/7 | 462 |
-| `catyearall` | 30日ごと | 1/30 | 269 |
-| | | **合計** | **7,837 / 10,000（78.4%）** |
-
-残り 2,163 units はリトライ・手動実行・`videos.list` の取り直しのための余裕です（ショート判定の HTTP 確認は 0 units なのでここには入りません）。
-最新値は `node scripts/collect.mjs --dry-run` でいつでも確認できます。
-
-### 5-4. 割当を増やせば自動で間隔が詰まる
-
-ORDER §4 の理想は「24h ランキングは毎時更新」ですが、4カ国では `top24h` だけで
-**1,616 × 24 = 38,784 units/日**となり、既定割当 10,000 では届きません。
-そこで **既定は 8時間ごと**としています（[`DECISIONS.md`](DECISIONS.md) 参照）。
-
-**割当を増やせば自動で詰まります。** `public/js/config.js` の `QUOTA.dailyUnits` を
-上げるだけで、planner（`scripts/lib/plan.mjs`）が重要なジョブから間隔を詰めます。**コードの変更は不要です。**
-
-| `QUOTA.dailyUnits` | `top24h` | `categories` | 日次消費 |
-|---:|---|---|---:|
-| 10,000（既定） | 8時間 | 7日 | 7,837 |
-| 15,000 | 6時間 | 7日 | 11,954 |
-| 20,000 | 6時間 | 日次 | 15,955 |
-| 30,000 | 4時間 | 日次 | 22,650 |
-| 50,000 | 2時間 | 日次 | 36,386 |
-| 100,000 | **1時間**（ORDER の理想） | 日次 | 55,778 |
-
-割当の増枠は Google の
-[YouTube API Services Audit form](https://support.google.com/youtube/contact/yt_api_form)
-から申請します（**無料・審査あり。有料での追加割当メニューは存在しません**）。
-急ぎでなければ現行間隔のままで v1 公開に支障はありません。
-
-### 5-5. セーフガード（ORDER §4）
-
-- 実行前に日次消費見込みを算出し、`dailyUnits × 0.8`（既定 8,000）を超える構成なら
-  **priority の大きいジョブから間隔を倍にして**収まるまで自動で落とす。
-- 落としたことは `public/data/index.json` の `quota.degraded = true` に出て、UI のステータスバー（`#statusbar`）にも表示される。
-- 当日の実消費が `dailyUnits × 0.95` に達したら、その日は残ジョブを実行しない（ハード停止）。
-- 消費カウンタは **PT 0:00（`America/Los_Angeles`）でリセット**する。
-- スキップまで行った場合でも、**空き枠に収まる安いジョブは最低頻度で復活する**（`map` は 26 units/日なので巻き添えで消えない）。
-- 目安として、**既定割当のままなら 4カ国 × カテゴリ全期間が上限**（更新間隔は延びる）。それ以上は増枠申請とセットで行うこと（[`docs/BUDGET.md`](docs/BUDGET.md) §4）。
+- 単価: `search.list`=100 / `videos.list`=1（50件）/ ショート判定 HTTP・oEmbed=**0 units**。
+  1本のランキング = `ceil(N/50) × 101`。
+- **不変条件: どのジョブも1回の費用 < 1日のハード停止（9,500）**。破ると1周を完走できず
+  他ジョブを飢餓させるため、カテゴリ×週間/月間/年間/全期間は期間単位の
+  `catweek / catmonth / catyear / catall` に分割してある（60日シミュレーションのテストで固定）。
+- 割当を増やすと planner が自動で間隔を詰めます（`QUOTA.dailyUnits` を書き換えるだけ）。
+  **ゲートFの申請額 20,000 で「8カ国・週間/月間＝毎日・カテゴリ×24h＝毎日」**が収まります。
+  増枠は [YouTube API Services Audit form](https://support.google.com/youtube/contact/yt_api_form)
+  から申請（**無料・審査あり。有料での追加割当メニューは存在しません**。文面は
+  [`docs/SUBMISSIONS.md`](docs/SUBMISSIONS.md) §5）。
+- セーフガード: ソフト上限 80% 超で priority の低いジョブから自動降格（`quota.degraded` に表示）、
+  実消費 95% でその日はハード停止、カウンタは PT 0:00 リセット。バックフィルは予約枠
+  （1,440 units/日）内で自己制限し、完走すると自動で解除されます。
 
 ---
 
@@ -212,7 +159,7 @@ ORDER §4 の理想は「24h ランキングは毎時更新」ですが、4カ�
 | 🟨 | **P2 自動化** | GitHub Actions 定時実行＋Pages 公開 | **Pages 公開済み**: https://guroriya.github.io/yt-trend-app/ （deploy 成功・e2e CI 緑）。毎時の収集はゲートA（APIキー）待ち |
 | ✅ | **P3 v1完成** | ORDER §2 の 1〜10 全部＋design-reviewer 合格 → v1 公開 | **公開済み**: https://guroriya.github.io/yt-trend-app/ 。4軸・スワイプ・順位変動・10件ごと広告枠・転送URL・i18n・PWA。E2E 200件緑、憲章の機械チェックは全タブ×英日×ライトダークで指摘ゼロ |
 | ✅ | **P4 v2** | ORDER §2 の 11〜14（My ランキング／ワード／世界地図／伸びランキング） | **実装完了・E2E 緑**。学習の「見える・消せる・いじれる」、検索タブ（旧ワードタブ／話題のワードは検索の入口として存続）、世界地図（地形つき）、伸びランキングの自動有効化。伸びは実データ3日ぶんの蓄積待ち |
-| 🟨 | **P5 v3 サーバー** | Cloudflare Workers＋KV の匿名タップ集計 | **コードは完成（`workers/taps/`＋フロント重ね表示＋E2E/単体テスト）、デプロイはゲートB 待ち**。純粋ロジックはブラウザ実行で検証済み。`TAPS.endpoint` が空の間は送信もフェッチも起きない |
+| 🟨 | **P5 v3/v4 サーバー** | Cloudflare Workers＋KV の匿名タップ集計＋**グループランキング（2026-08-25 第3弾）** | **コードは完成（`workers/taps/`＋フロント＋E2E/単体テスト）、デプロイはゲートB 待ち（1回で両方有効化）**。`TAPS.endpoint`／`GROUPS.endpoint` が空の間は送信もフェッチも起きない |
 | ⬜ | **P6 Android・広告** | Capacitor ビルド、AdMob／AdSense 差し込み | ビルドは未着手（**ゲートC**）。**申請文・ストア掲載文・データセーフティ回答は [`docs/SUBMISSIONS.md`](docs/SUBMISSIONS.md) に用意済み** |
 
 現在地・次の一手・未解決は [`HANDOFF.md`](HANDOFF.md) が常に最新です。
@@ -229,7 +176,7 @@ ORDER §4 の理想は「24h ランキングは毎時更新」ですが、4カ�
 | **0** | Node.js LTS ＋ GitHub CLI の導入（`winget`）と `gh auth login` | 最優先。ローカル検証と自動化の前提 |
 | **A** | Google Cloud で YouTube Data API v3 のキー発行 → `YT_API_KEY` を GitHub Secrets に登録 | P1 |
 | **E** | GitHub リポジトリ作成と Pages の有効化 | P2 |
-| **F** | API 割当の増枠申請（任意・急がない） | 24時間ランキングを毎時更新にしたくなったら（§5-4） |
+| **F** | API 割当の増枠申請（**発注者指示 2026-08-25・20,000 で申請**） | 8カ国化＋週間/月間の毎日更新のため。文面は `docs/SUBMISSIONS.md` §5 |
 | **B** | Cloudflare アカウント＋wrangler 認可 | P5 |
 | **C** | Google Play Console 登録（$25）／AdMob・AdSense 申請 | P6 |
 | **D** | 見た目のスクショ指摘（随時・任意）。デザイン憲章より優先して反映 | いつでも |
