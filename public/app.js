@@ -466,7 +466,9 @@ function buildAxes() {
   PERIODS.forEach(p => {
     const b = el('button', 'chip', t(`period.${p.id}`));
     b.type = 'button'; b.role = 'tab'; b.dataset.period = p.id;
-    b.addEventListener('click', () => go({ period: p.id }));
+    // タップでもスワイプと同じ zap を出す。方向は軸上の並び順から決める（BACKLOG 2026-08-25）
+    b.addEventListener('click', () => go({ period: p.id },
+      { dir: Math.sign(PERIODS.findIndex(x => x.id === p.id) - PERIODS.findIndex(x => x.id === state.period)) }));
     pa.append(b);
   });
   // 部門
@@ -475,7 +477,8 @@ function buildAxes() {
   SECTIONS.forEach(s => {
     const b = el('button', null, t(`section.${s.id}`));
     b.type = 'button'; b.role = 'tab'; b.dataset.section = s.id;
-    b.addEventListener('click', () => go({ section: s.id }));
+    b.addEventListener('click', () => go({ section: s.id },
+      { dir: Math.sign(SECTIONS.findIndex(x => x.id === s.id) - SECTIONS.findIndex(x => x.id === state.section)) }));
     sa.append(b);
   });
   // カテゴリ
@@ -484,7 +487,8 @@ function buildAxes() {
   CATEGORIES.forEach(c => {
     const b = el('button', 'chip', t(`category.${c.id}`));
     b.type = 'button'; b.role = 'tab'; b.dataset.category = c.id;
-    b.addEventListener('click', () => go({ category: c.id }));
+    b.addEventListener('click', () => go({ category: c.id },
+      { dir: Math.sign(CATEGORIES.findIndex(x => x.id === c.id) - CATEGORIES.findIndex(x => x.id === state.category)) }));
     ca.append(b);
   });
   // 指標（新着／伸び）— index.json の features.growth が有効なときだけ出す
@@ -1076,7 +1080,7 @@ function bindChrome() {
   });
   $('#btn-country').addEventListener('click', () => {
     const codes = COUNTRIES.map(c => c.code);
-    go({ country: codes[(codes.indexOf(state.country) + 1) % codes.length] });
+    go({ country: codes[(codes.indexOf(state.country) + 1) % codes.length] }, { dir: 1 });
   });
   $('#my-enabled').addEventListener('change', e => {
     Learn.setEnabled(e.target.checked);

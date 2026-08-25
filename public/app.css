@@ -434,7 +434,9 @@ ol, ul { list-style: none; margin: 0; padding: 0; }
 .tagrank { flex: none; width: 26px; text-align: center; font-size: 15px; font-weight: 800; color: var(--text-3); font-variant-numeric: tabular-nums; }
 .tagterm { flex: 1 1 auto; min-width: 0; font-size: 14.5px; font-weight: 700; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .tagbar { flex: none; width: 78px; height: 6px; border-radius: 3px; background: var(--bg-sunk); overflow: hidden; }
-.tagbar span { display: block; height: 100%; background: linear-gradient(90deg, var(--accent-fill), var(--gold)); }
+/* ブランドマーク／モード下線のグラデーションとは塗りを分ける（意味が違う: これは「量」）。 */
+.tagbar span { display: block; height: 100%; border-radius: inherit;
+  background: color-mix(in srgb, var(--accent-fill) 72%, var(--bg)); }
 .tagcount { flex: none; font-size: 11px; color: var(--text-3); min-width: 58px; text-align: right;
   white-space: nowrap; font-variant-numeric: tabular-nums; }   /* EN の "12 videos" が入る幅 */
 
