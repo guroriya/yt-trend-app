@@ -260,7 +260,7 @@ const Learn = {
  */
 const Taps = {
   mock: new URLSearchParams(location.search).get('taps') === 'mock',
-  endpoint: TAPS.endpoint,
+  endpoint: TAPS.endpoint.replace(/\/+$/, ''), // 末尾スラッシュ付きで貼られても //tap にしない
   enabled() { return this.mock || !!this.endpoint; },
   send(videoId, country) {
     if (!this.endpoint || this.mock) return;
@@ -780,6 +780,12 @@ async function renderMap() {
     return;
   }
   const known = new Set(COUNTRIES.map(c => c.code));
+  // ピンのバッジは密集地帯（欧州）で相互に重なり数字が誤読されるため、
+  // タップ数上位5か国＋対応国だけに出す。全数値は下の国リスト（主導線）に必ず出る。
+  const badged = new Set([
+    ...Object.entries(taps?.countries || {}).sort((a, b) => b[1] - a[1]).slice(0, 5).map(([c]) => c),
+    ...COUNTRIES.map(c => c.code),
+  ]);
   const dive = it => {
     if (known.has(it.country)) go({ mode: 'everyone', country: it.country, period: '24h' });
     else {
@@ -805,7 +811,7 @@ async function renderMap() {
     img.src = thumbUrl(it.videoId); img.alt = ''; img.loading = 'lazy';
     b.append(img);
     const tapN = taps?.countries?.[it.country] || 0;
-    if (tapN > 0) {
+    if (tapN > 0 && badged.has(it.country)) {
       b.classList.add('has-taps');
       b.append(el('span', 'pin-taps', fmtCount(tapN)));
     }

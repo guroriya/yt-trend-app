@@ -13,7 +13,7 @@
 
 ### 短い説明（80字以内）
 - JA: `YouTubeの「今の勢い」を一覧で。みんなのランキングと自分のランキングを行き来するザッピング体験。`
-- EN: `Zap between everyone's YouTube trending ranking and your own. 24h to all-time, by country.`
+- EN: `Zap between everyone's YouTube trending ranking and your own. By country.`
 
 ### 詳しい説明（JA）
 

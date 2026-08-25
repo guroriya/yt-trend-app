@@ -130,17 +130,18 @@ npx wrangler deploy
 
 5. 出力される URL（`https://trendzap-taps.〜.workers.dev`）をコピーして、
    `public/js/config.js` の `TAPS.endpoint: ''` に貼る（例: `endpoint: 'https://trendzap-taps.xxx.workers.dev'`）→ commit & push
-6. 動作確認（P5 検収 = curl でカウント → 表示に反映）:
+6. 動作確認（P5 検収 = カウント → 表示に反映）。PowerShell にそのまま貼ってください
+   （`あなたのURL` の部分だけ手順5の URL に置き換え）:
 
 ```
-curl -X POST https://trendzap-taps.あなたのURL.workers.dev/tap -H "content-type: application/json" -d "{\"country\":\"JP\",\"videoId\":\"dQw4w9WgXcQ\"}" ; curl https://trendzap-taps.あなたのURL.workers.dev/stats
+Invoke-RestMethod -Method Post -Uri https://あなたのURL.workers.dev/tap -Body '{"country":"JP","videoId":"dQw4w9WgXcQ"}' ; Invoke-RestMethod https://あなたのURL.workers.dev/stats
 ```
 
-→ `{"date":"…","total":1,"countries":{"JP":1}}` のように返り、アプリの「世界」タブに
-「今日、このアプリから 1 回 YouTube へ飛びました」が出れば完了です。
+→ `date=… total=1 countries=@{JP=1}` のように返り、アプリの「世界」タブに
+「今日、このアプリからYouTubeへ1回飛びました」が出れば完了です。
 
-> 無料枠の注意: KV の書き込みは 1日 1,000 回まで（=1日1,000タップまで数えられます）。
-> 超えた分は数え落とすだけで、アプリ本体には影響しません。
+> 無料枠の注意: KV の書き込みは 1日 1,000 回まで・同じキーへは 1秒に 1回まで。
+> 上限に当たった分は**数え落とすだけ**で（Worker は正常応答を返す実装）、アプリ本体には影響しません。
 
 ## ゲートC（P6 で必要 / まだ着手不要）— Google Play Console（$25）／AdMob・AdSense 申請
 　→ 申請に使う文面はすべて `docs/SUBMISSIONS.md` に用意してあります（提出操作のみお願いします）

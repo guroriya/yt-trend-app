@@ -16,9 +16,10 @@ import fs from 'node:fs';
 import path from 'node:path';
 
 import {
-  MAP_COUNTRIES, I18N, PUBLIC_DIR,
+  COUNTRIES, MAP_COUNTRIES, I18N, PUBLIC_DIR,
   gotoApp, waitForApp, waitForList, mapHash, everyoneHash, blockThumbnails, seedStorage,
 } from './helpers.js';
+import { TAPS } from '../public/js/config.js';
 
 test.use({ serviceWorkers: 'block' });
 
@@ -29,14 +30,14 @@ const CORS = {
   'access-control-allow-headers': 'content-type',
 };
 
-/** config.js の endpoint をテスト用に書き換えて配る。 */
+/** config.js の endpoint をテスト用に書き換えて配る（実値が何であっても上書きできる）。 */
 async function routeConfigWithEndpoint(page, endpoint) {
   const src = fs.readFileSync(path.join(PUBLIC_DIR, 'js', 'config.js'), 'utf8');
-  expect(src).toContain("endpoint: ''");
+  expect(src).toMatch(/endpoint: '[^']*'/);
   await page.route('**/js/config.js', route => route.fulfill({
     status: 200,
     contentType: 'text/javascript',
-    body: src.replace("endpoint: ''", `endpoint: '${endpoint}'`),
+    body: src.replace(/endpoint: '[^']*'/, `endpoint: '${endpoint}'`),
   }));
 }
 
@@ -64,6 +65,8 @@ async function routeTapsServer(page, { total = 42, countries = { JP: 30, US: 12 
 /* --------------------------------------------- 1. 既定では外に出ない */
 
 test.describe('既定（endpoint 空）', () => {
+  // ゲートB（NEEDS_HUMAN.md）で endpoint が設定された後は「送らない」仕様自体が変わるので対象外
+  test.skip(TAPS.endpoint !== '', 'TAPS.endpoint 設定済み（ゲートB完了後）のため、既定=無効のテストは対象外');
   test('タップしても統計表示でも、集計サーバーへの通信は一切ない', async ({ page }) => {
     const external = [];
     await page.context().route('**/*', route => {
@@ -105,9 +108,12 @@ test.describe('endpoint が設定されている時', () => {
 
     const posted = page.waitForRequest(r => r.url() === `${TAPS_ORIGIN}/tap` && r.method() === 'POST');
     await first.locator('.card-link').click();
-    await posted;
+    const req = await posted;
 
-    expect(taps).toEqual([{ country: 'JP', videoId }]);
+    // waitForRequest の解決（request イベント）は route ハンドラの実行より先に来ることがある。
+    // 本文は request 自体から取り、配列の方はリトライつきで「ちょうど1件」を確かめる。
+    expect(req.postDataJSON()).toEqual({ country: 'JP', videoId });
+    await expect.poll(() => taps.length).toBe(1);
   });
 
   test('世界タブに 合計＋国別 が重なる（独自指標とアプリ住民の地図）', async ({ page }) => {
@@ -159,7 +165,13 @@ test.describe('?taps=mock', () => {
 
     await expect(page.locator('.map-residents')).toBeVisible();
     await expect(page.locator('.map-residents')).toContainText(I18N.en['taps.today'].replace('{n}', fmt));
-    await expect(page.locator('.map-pin .pin-taps')).toHaveCount(MAP_COUNTRIES.length);
+    // ピンのバッジは「上位5か国＋対応国」だけ（renderMap の badged と同じ規則）
+    const counts = MAP_COUNTRIES.map((c, i) => [c.code, ((i * 37) % 90) + 8]);
+    const badged = new Set([
+      ...counts.sort((a, b) => b[1] - a[1]).slice(0, 5).map(([c]) => c),
+      ...COUNTRIES.map(c => c.code),
+    ]);
+    await expect(page.locator('.map-pin .pin-taps')).toHaveCount(badged.size);
 
     const tapsCalls = external.filter(u => u.includes('/tap') || u.includes('/stats') || u.includes('taps'));
     expect(tapsCalls).toEqual([]);

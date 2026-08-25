@@ -30,7 +30,8 @@ export default {
       let body = null;
       try {
         const text = await request.text();
-        if (text.length > 256) return new Response(null, { status: 413, headers: cors });
+        // SCHEMA §7 の契約は「256 バイト」。文字数（UTF-16 単位）ではなくバイト長で測る
+        if (new TextEncoder().encode(text).length > 256) return new Response(null, { status: 413, headers: cors });
         body = JSON.parse(text);
       } catch { /* fall through to 400 */ }
       const tap = validateTap(body);
@@ -38,8 +39,14 @@ export default {
 
       const date = utcDateOf(Date.now());
       const key = `day:${date}`;
-      const day = reviveDay(await env.TAPS.get(key, 'json'), date);
-      await env.TAPS.put(key, JSON.stringify(applyTap(day, tap)), { expirationTtl: DAY_TTL_SECONDS });
+      try {
+        const day = reviveDay(await env.TAPS.get(key, 'json'), date);
+        await env.TAPS.put(key, JSON.stringify(applyTap(day, tap)), { expirationTtl: DAY_TTL_SECONDS });
+      } catch {
+        /* KV は同一キーへの書き込みが 1回/秒・無料枠 1,000回/日。day:{date} は単一の
+           ホットキーなので、瞬間的に集中すると put が投げる。近似カウンタの取りこぼしは
+           設計上許容（SCHEMA §7）なので、失敗しても 5xx にせず黙って 204 を返す。 */
+      }
       return new Response(null, { status: 204, headers: cors });
     }
 

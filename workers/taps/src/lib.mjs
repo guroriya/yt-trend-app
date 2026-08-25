@@ -85,14 +85,21 @@ export function publicStats(day) {
  * CORS ヘッダ。allowed は '*' か、カンマ区切りの許可オリジン列。
  * カウンタは公開データで認証情報も無いので既定 '*' で実害はないが、
  * Pages のオリジンに絞れるよう wrangler.toml の ALLOWED_ORIGINS で差し替え可能にする。
+ * 注意（レビュー 2026-08-25 で修正）:
+ *   - 不許可時に ACAO:'null' を返すと、sandbox iframe / file:// の Origin はまさに
+ *     文字列 "null" なので照合が成立してしまう（fail-open）。不許可時はヘッダ自体を出さない。
+ *   - 許可リスト運用ではレスポンスがオリジンごとに変わるため Vary: Origin を必ず付ける
+ *     （/stats は max-age=60 で共有キャッシュに乗るので、無いと誤配される）。
  */
 export function corsHeaders(origin, allowed = '*') {
   const list = String(allowed).split(',').map(s => s.trim()).filter(Boolean);
-  const ok = list.includes('*') || (origin && list.includes(origin));
-  return {
-    'access-control-allow-origin': ok ? (list.includes('*') ? '*' : origin) : 'null',
+  const h = {
     'access-control-allow-methods': 'GET, POST, OPTIONS',
     'access-control-allow-headers': 'content-type',
     'access-control-max-age': '86400',
   };
+  if (list.includes('*')) { h['access-control-allow-origin'] = '*'; return h; }
+  h['vary'] = 'origin';
+  if (origin && origin !== 'null' && list.includes(origin)) h['access-control-allow-origin'] = origin;
+  return h;
 }

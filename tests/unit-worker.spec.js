@@ -105,10 +105,14 @@ test.describe('運用の約束', () => {
     expect(DAY_TTL_SECONDS).toBe(31 * 86400);
   });
 
-  test('corsHeaders: 既定 * / 許可リストは一致したときだけ通す', () => {
+  test('corsHeaders: 既定 * / 許可リストは一致したときだけ通す（不許可はヘッダ自体を出さない）', () => {
     expect(corsHeaders('https://example.com')['access-control-allow-origin']).toBe('*');
     const h = corsHeaders('https://me.github.io', 'https://me.github.io, https://other.dev');
     expect(h['access-control-allow-origin']).toBe('https://me.github.io');
-    expect(corsHeaders('https://evil.dev', 'https://me.github.io')['access-control-allow-origin']).toBe('null');
+    expect(h.vary).toBe('origin'); // オリジンで応答が変わる = 共有キャッシュの誤配防止
+    // 不許可時に 'null' を返すと sandbox iframe / file://（Origin: null）が素通しになる。
+    // ヘッダ不在 = ブラウザ側でブロック、が正しい失敗の形。
+    expect('access-control-allow-origin' in corsHeaders('https://evil.dev', 'https://me.github.io')).toBe(false);
+    expect('access-control-allow-origin' in corsHeaders('null', 'https://me.github.io')).toBe(false);
   });
 });

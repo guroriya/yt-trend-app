@@ -434,9 +434,9 @@ ol, ul { list-style: none; margin: 0; padding: 0; }
 .tagrank { flex: none; width: 26px; text-align: center; font-size: 15px; font-weight: 800; color: var(--text-3); font-variant-numeric: tabular-nums; }
 .tagterm { flex: 1 1 auto; min-width: 0; font-size: 14.5px; font-weight: 700; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .tagbar { flex: none; width: 78px; height: 6px; border-radius: 3px; background: var(--bg-sunk); overflow: hidden; }
-/* ブランドマーク／モード下線のグラデーションとは塗りを分ける（意味が違う: これは「量」）。 */
-.tagbar span { display: block; height: 100%; border-radius: inherit;
-  background: color-mix(in srgb, var(--accent-fill) 72%, var(--bg)); }
+/* ブランドマーク／モード下線のグラデーションとは塗りを分ける（意味が違う: これは「量」）。
+   淡色はライトテーマで下地 3:1 を割った（監査 2026-08-25）ため、テキスト用の --accent 単色。 */
+.tagbar span { display: block; height: 100%; border-radius: inherit; background: var(--accent); }
 .tagcount { flex: none; font-size: 11px; color: var(--text-3); min-width: 58px; text-align: right;
   white-space: nowrap; font-variant-numeric: tabular-nums; }   /* EN の "12 videos" が入る幅 */
 
@@ -452,6 +452,7 @@ ol, ul { list-style: none; margin: 0; padding: 0; }
 /* overflow:hidden だと v3 のタップ数バッジ（.pin-taps）が円で切れる。丸めは img 側で行う */
 .map-pin img { width: 100%; height: 100%; object-fit: cover; border-radius: 50%; }
 .map-pin::before { content: ""; position: absolute; inset: -7px; border-radius: 50%; }
+.map-pin.has-taps { z-index: 1; }  /* バッジが隣の素のピンに隠されないように */
 .map-pin.is-primary { width: 38px; height: 38px; border-color: var(--accent-fill); }
 .map-pin.is-primary::before { inset: -3px; }
 .map-legend { font-size: 11.5px; color: var(--text-3); padding: 8px 4px 0; }

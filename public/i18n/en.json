@@ -123,8 +123,8 @@
   "map.subtitle": "The #1 video in each country right now. Tap to dive in.",
   "map.dive": "See {country}'s ranking",
   "map.empty": "Map data is not ready yet.",
-  "taps.today": "{n} zaps to YouTube from this app today",
-  "taps.count": "{n} zaps today",
+  "taps.today": "Zaps to YouTube from this app today: {n}",
+  "taps.count": "{n}× today",
 
   "settings.title": "Settings",
   "settings.language": "Language",
