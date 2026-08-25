@@ -81,6 +81,108 @@ export function publicStats(day) {
   return { date: day.date, total: day.total, countries: day.countries };
 }
 
+/* ==========================================================================
+ * v4 グループランキング（2026-08-25 発注者改訂 第3弾）
+ *
+ * 「リンクを知っている人だけが参加できる匿名の共有リスト」。友達やグループで
+ * いまザッピングしている動画を追加し合い、追加数×新しさのランキングになる。
+ *   - 認証なし。URL に含まれる推測困難な ID（59bit 乱数）そのものが鍵
+ *   - 保存は 動画ID・追加回数・時刻 のみ。名前・IP・UA など「誰が」は仕組み上存在しない
+ *   - 90日間 追加が無いグループは KV の TTL で自動消滅する
+ * ========================================================================== */
+
+/** グループの TTL。追加のたびに貼り直す ＝「90日追加が無ければ消える」。 */
+export const GROUP_TTL_SECONDS = 90 * 86400;
+/** 1グループに残す動画数。超えたらスコアの低い順に間引く。 */
+export const GROUP_MAX_ITEMS = 200;
+/** 1グループ・1日あたりの追加回数上限（悪用対策）。 */
+export const GROUP_MAX_ADDS_PER_DAY = 300;
+/** 全体で1日に作れるグループ数（悪用対策）。 */
+export const GROUP_CREATES_PER_DAY = 100;
+/** ホットスコアの半減期（時間）。追加から3日で重みが半分になる。 */
+export const GROUP_HALF_LIFE_HOURS = 72;
+
+const GROUP_ID_ALPHABET = 'abcdefghijklmnopqrstuvwxyz0123456789';
+
+/** 乱数バイト列 → グループID（10文字 ≒ 51bit。URL に載せやすい小文字英数のみ）。 */
+export function groupIdFrom(bytes) {
+  let out = '';
+  for (let i = 0; i < 10; i++) out += GROUP_ID_ALPHABET[bytes[i] % GROUP_ID_ALPHABET.length];
+  return out;
+}
+
+export function isValidGroupId(s) {
+  return typeof s === 'string' && /^[a-z0-9]{10}$/.test(s);
+}
+
+/** POST /g/{id}/add の本文検証。受け付けるのは動画IDだけ（自由文は一切保存しない）。 */
+export function validateGroupAdd(body) {
+  if (!body || typeof body !== 'object') return null;
+  const { videoId } = body;
+  if (typeof videoId !== 'string' || !/^[A-Za-z0-9_-]{11}$/.test(videoId)) return null;
+  return { videoId };
+}
+
+export function emptyGroup(nowMs) {
+  return { v: 1, createdAt: nowMs, updatedAt: nowMs, adds: {}, videos: {} };
+}
+
+/** 保存済み JSON を安全に読み戻す（壊れていたら null ＝ 404 に落とす。作り直しはしない）。 */
+export function reviveGroup(raw) {
+  if (!raw || typeof raw !== 'object') return null;
+  const ok = raw.v === 1
+    && typeof raw.createdAt === 'number'
+    && typeof raw.updatedAt === 'number'
+    && raw.adds && typeof raw.adds === 'object'
+    && raw.videos && typeof raw.videos === 'object';
+  return ok ? raw : null;
+}
+
+/** 追加数 × 新しさ。n 回追加された動画が、最後の追加から半減期ごとに重みを半分にしていく。 */
+export function hotScore(n, atMs, nowMs) {
+  const ageH = Math.max(0, (nowMs - atMs) / 3600e3);
+  return n * Math.pow(2, -ageH / GROUP_HALF_LIFE_HOURS);
+}
+
+/** その日の追加回数が上限に達していないか。 */
+export function canAddToday(group, nowMs) {
+  return (group.adds[utcDateOf(nowMs)] || 0) < GROUP_MAX_ADDS_PER_DAY;
+}
+
+/**
+ * 1件追加する。同じ動画をもう一度（別の人が）追加すると n が増えてスコアが上がる。
+ * 上限を超えたらスコアの低い順に間引く。日別カウンタは当日ぶんだけ残す（肥大防止）。
+ */
+export function applyGroupAdd(group, videoId, nowMs) {
+  const date = utcDateOf(nowMs);
+  const g = {
+    v: 1, createdAt: group.createdAt, updatedAt: nowMs,
+    adds: { [date]: (group.adds[date] || 0) + 1 },
+    videos: { ...group.videos },
+  };
+  const prev = g.videos[videoId];
+  g.videos[videoId] = { n: (prev?.n || 0) + 1, at: nowMs };
+  const ids = Object.keys(g.videos);
+  if (ids.length > GROUP_MAX_ITEMS) {
+    ids.sort((a, b) => hotScore(g.videos[b].n, g.videos[b].at, nowMs) - hotScore(g.videos[a].n, g.videos[a].at, nowMs));
+    const keep = {};
+    for (const id of ids.slice(0, GROUP_MAX_ITEMS)) keep[id] = g.videos[id];
+    g.videos = keep;
+  }
+  return g;
+}
+
+/** GET /g/{id} で外に出す形。スコア降順のランキング。 */
+export function publicGroup(group, nowMs) {
+  const items = Object.entries(group.videos)
+    .map(([videoId, e]) => ({
+      videoId, count: e.n, addedAt: e.at,
+      score: Math.round(hotScore(e.n, e.at, nowMs) * 1000) / 1000,
+    }))
+    .sort((a, b) => b.score - a.score || b.addedAt - a.addedAt);
+  return { createdAt: group.createdAt, updatedAt: group.updatedAt, items };
+}
+
 /**
  * CORS ヘッダ。allowed は '*' か、カンマ区切りの許可オリジン列。
  * カウンタは公開データで認証情報も無いので既定 '*' で実害はないが、

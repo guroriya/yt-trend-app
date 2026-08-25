@@ -6,7 +6,7 @@
 
 import {
   COUNTRIES, SECTIONS, PERIODS, CATEGORIES, LANGUAGES, DEFAULT_LANG,
-  MAP_COUNTRIES, AD_EVERY, RETENTION, LEARNING, TAPS, datasetId, datasetPath,
+  MAP_COUNTRIES, AD_EVERY, RETENTION, LEARNING, TAPS, GROUPS, datasetId, datasetPath,
 } from './js/config.js';
 
 /* ---------------------------------------------------------------- helpers */
@@ -42,6 +42,7 @@ const state = {
   offline: !navigator.onLine,
   reqId: 0,
   q: '',                     // ランキング内検索の語。ハッシュには載せない（端末内で完結）
+  groupId: null,             // v4 グループ: いま開いているグループ（#/groups/{id}）
 };
 
 /* ------------------------------------------------------------------- i18n */
@@ -495,6 +496,123 @@ const Taps = {
   },
 };
 
+/* --------------------------- v4 グループランキング（2026-08-25 発注者改訂 第3弾） */
+/*
+ * 「リンクを知っている人だけが参加できる匿名の共有リスト」。友達に URL を送る →
+ * 誰でも今見ている動画を追加できる → 追加数×新しさのランキングになる。
+ * サーバーは workers/taps（タップ集計と同じデプロイ）。保存は動画IDと回数だけで、
+ * 「誰が追加したか」は仕組み上存在しない。グループ名は端末内にしか保存しない。
+ * `?groups=mock` はネットワークに出ない表示専用サンプル（開発・E2E 用）。
+ */
+const Groups = {
+  mock: new URLSearchParams(location.search).get('groups') === 'mock',
+  endpoint: GROUPS.endpoint.replace(/\/+$/, ''),
+  enabled() { return this.mock || !!this.endpoint; },
+
+  load() {
+    const d = LS.get(GROUPS.storageKey, null);
+    if (!d || !Array.isArray(d.list)) return { v: 1, list: [] };
+    return { v: 1, list: d.list.filter(g => g && /^[a-z0-9]{10}$/.test(g.id)) };
+  },
+  save(d) { LS.set(GROUPS.storageKey, d); },
+  list() { return this.load().list; },
+  remember(id, name = '') {
+    const d = this.load();
+    if (!d.list.some(g => g.id === id)) { d.list.unshift({ id, name }); d.list = d.list.slice(0, 20); this.save(d); }
+  },
+  rename(id, name) {
+    const d = this.load();
+    const g = d.list.find(x => x.id === id);
+    if (g) { g.name = name; this.save(d); }
+  },
+  forget(id) {
+    const d = this.load();
+    d.list = d.list.filter(g => g.id !== id);
+    this.save(d);
+  },
+  nameOf(id) { return this.list().find(g => g.id === id)?.name || ''; },
+  inviteUrl(id) { return `${location.origin}${location.pathname}#/groups/${id}`; },
+
+  async create() {
+    if (this.mock) return 'mock000001';
+    const res = await fetch(`${this.endpoint}/g`, { method: 'POST', mode: 'cors' });
+    if (!res.ok) return null;
+    const d = await res.json().catch(() => null);
+    return /^[a-z0-9]{10}$/.test(d?.id || '') ? d.id : null;
+  },
+  async fetchGroup(id) {
+    if (this.mock) return this._mockGroup(id);
+    try {
+      const res = await fetch(`${this.endpoint}/g/${id}`, { mode: 'cors' });
+      if (!res.ok) return null;
+      const d = await res.json();
+      return Array.isArray(d?.items) ? d : null;
+    } catch { return null; }
+  },
+  add(id, videoId) {
+    if (this.mock) { this._mockAdds.unshift(videoId); return Promise.resolve(true); }
+    // content-type を付けない（CORS の単純リクエスト）— Taps.send と同じ流儀
+    return fetch(`${this.endpoint}/g/${id}/add`, {
+      method: 'POST', mode: 'cors', keepalive: true,
+      body: JSON.stringify({ videoId }),
+    }).then(r => r.ok, () => false);
+  },
+
+  /* 動画のメタ情報（題名・投稿者）。公開ランキング JSON に居ればそこから（0リクエスト）、
+     居なければ Worker 経由の oEmbed（YouTube 側は CORS を返さないため直接は読めない）。 */
+  _meta: new Map(),
+  async meta(videoId) {
+    if (this._meta.has(videoId)) return this._meta.get(videoId);
+    for (const d of memCache.values()) {
+      try {
+        const hit = (await d)?.items?.find?.(it => it.videoId === videoId);
+        if (hit) { const m = { title: hit.title, author: hit.channelTitle }; this._meta.set(videoId, m); return m; }
+      } catch { /* soft */ }
+    }
+    if (this.mock) { const m = { title: `Mock video ${videoId.slice(0, 4)}`, author: 'Mock channel' }; this._meta.set(videoId, m); return m; }
+    try {
+      const res = await fetch(`${this.endpoint}/oembed?v=${videoId}`, { mode: 'cors' });
+      const m = res.ok ? await res.json() : null;
+      const out = m?.title ? { title: m.title, author: m.author || '' } : null;
+      this._meta.set(videoId, out);
+      return out;
+    } catch { return null; }
+  },
+
+  _timer: 0,
+  schedulePoll() {
+    clearTimeout(this._timer);
+    this._timer = setTimeout(() => {
+      if (state.mode === 'groups' && state.groupId && !document.hidden) renderGroups({ silent: true });
+      else if (state.mode === 'groups') this.schedulePoll();
+    }, GROUPS.pollMs);
+  },
+
+  _mockAdds: [],
+  _mockGroup(id) { // 決定論的（E2E が断言できる）＋この端末で追加したぶんを先頭に足す
+    if (!/^[a-z0-9]{10}$/.test(id)) return null;
+    const base = ['dQw4w9WgXcQ', '9bZkp7q19f0', 'kJQP7kiw5Fk', 'JGwWNGJdvx8'];
+    const now = Date.now();
+    const items = base.map((videoId, i) => ({
+      videoId, count: 4 - i, addedAt: now - i * 3600e3, score: Math.round((4 - i) * 100) / 100,
+    }));
+    this._mockAdds.forEach((videoId, i) => {
+      if (!items.some(x => x.videoId === videoId)) {
+        items.unshift({ videoId, count: 1, addedAt: now - i, score: 99 - i });
+      }
+    });
+    return { createdAt: now - 7 * 864e5, updatedAt: now, items };
+  },
+};
+
+/** YouTube の URL（watch / youtu.be / shorts / embed / live）か素の ID から videoId を取り出す。 */
+function extractVideoId(input) {
+  const s = String(input || '').trim();
+  if (/^[A-Za-z0-9_-]{11}$/.test(s)) return s;
+  const m = s.match(/(?:v=|vi=|youtu\.be\/|shorts\/|embed\/|live\/)([A-Za-z0-9_-]{11})(?![A-Za-z0-9_-])/);
+  return m ? m[1] : null;
+}
+
 /* --------------------------------------------------------------- card DOM */
 const catLabelOf = ytId => {
   const c = CATEGORIES.find(x => x.ytId === ytId);
@@ -792,8 +910,19 @@ function renderStatus(data, search = null) {
       youtubeSearchButton(search.q, state.period));
     return;
   }
+  // 全期間の遡り収集が走っている間は、year/all の表示にだけ進み具合を出す
+  // （2026-08-25 発注者改訂 第3弾。数字は index.json の features.backfill）。
+  // mock（--backfill）でも出す＝E2E がこの行を断言できる。
+  const bf = state.index?.features?.backfill;
+  const backfillLine = () => {
+    if (bf?.active && state.metric === 'published' && (state.period === 'year' || state.period === 'all')) {
+      bar.append(el('span', 'badge badge-mock', '⛏'),
+        el('span', null, t('state.backfill', { done: bf.done, total: bf.total })));
+    }
+  };
   if (state.index?.source === 'mock') {
     bar.append(el('span', 'badge badge-mock', 'SAMPLE'), el('span', null, t('settings.dataSource.mock')));
+    backfillLine();
     return;
   }
   if (state.offline) bar.append(el('span', 'badge badge-off', 'OFFLINE'), el('span', null, t('state.offline')));
@@ -803,6 +932,7 @@ function renderStatus(data, search = null) {
     bar.append(el('span', null, t(key, { t: fmtAgo(data.generatedAt) })));
   }
   if (state.index?.quota?.degraded) bar.append(el('span', 'badge badge-off', '↓'), el('span', null, t('state.degraded')));
+  backfillLine();
 }
 
 /* ---------------------------------------------------------- everyone view */
@@ -1296,13 +1426,237 @@ async function renderMap() {
       b.append(th, info);
       b.addEventListener('click', () => dive(it));
       li.append(b);
+      // その国のトップ10ミニリスト（map.json の top / 2026-08-25 第3弾「地図拡充」）。
+      // 対応国もそうでない国も、行の右の「トップ10」で開閉できる副次導線にする。
+      if (Array.isArray(it.top) && it.top.length > 1) {
+        const more = el('button', 'mc-more', t('map.top10'));
+        more.type = 'button';
+        more.setAttribute('aria-expanded', 'false');
+        more.setAttribute('aria-label', `${t('country.' + it.country) || it.country}: ${t('map.top10')}`);
+        const sub = el('ol', 'mc-top');
+        sub.hidden = true;
+        it.top.forEach((v, i) => {
+          const row = el('li');
+          const link = el('a', 'mc-top-row');
+          link.href = v.isShort
+            ? `https://www.youtube.com/shorts/${v.videoId}`
+            : `https://www.youtube.com/watch?v=${v.videoId}`;
+          link.target = '_blank';
+          link.rel = 'noopener noreferrer';
+          link.append(el('span', 'mc-top-rank', String(i + 1)));
+          const timg = new Image();
+          timg.src = thumbUrl(v.videoId); timg.alt = ''; timg.loading = 'lazy';
+          const tth = el('span', 'mc-top-thumb');
+          tth.append(timg);
+          link.append(tth);
+          const tinfo = el('span', 'info');
+          tinfo.append(el('span', 'title', v.title));
+          tinfo.append(el('span', 'meta', `${v.channelTitle ? `${v.channelTitle} · ` : ''}${fmtViews(v.viewCount)}`));
+          link.append(tinfo);
+          link.addEventListener('click', () => Taps.send(v.videoId, it.country));
+          row.append(link);
+          sub.append(row);
+        });
+        more.addEventListener('click', () => {
+          sub.hidden = !sub.hidden;
+          more.setAttribute('aria-expanded', String(!sub.hidden));
+          more.classList.toggle('is-open', !sub.hidden);
+        });
+        li.append(more, sub);
+      }
       strip.append(li);
     });
   wrap.append(strip);
 }
 
+/* ------------------------------------------------------------ groups view */
+function groupStateBox(titleKey, bodyKey, emoji) {
+  const box = el('div', 'state');
+  box.append(el('div', 'state-emoji', emoji));
+  box.append(el('p', 'state-title', t(titleKey)));
+  box.append(el('p', 'state-body', t(bodyKey)));
+  return box;
+}
+
+async function createGroupFlow(btn) {
+  btn.disabled = true;
+  btn.textContent = t('groups.creating');
+  const id = await Groups.create();
+  if (!id) {
+    btn.disabled = false;
+    btn.textContent = t('groups.create');
+    toast(t('groups.createFail'));
+    return;
+  }
+  Groups.remember(id);
+  await go({ mode: 'groups', groupId: id });
+  // 作った直後にやることは「リンクを配る」。コピーまで一息で済ませる。
+  copyInvite(id);
+}
+
+function copyInvite(id) {
+  const url = Groups.inviteUrl(id);
+  const done = () => toast(t('groups.copied'));
+  if (navigator.clipboard?.writeText) navigator.clipboard.writeText(url).then(done, () => prompt(t('groups.share'), url));
+  else prompt(t('groups.share'), url);
+}
+
+async function renderGroups({ silent = false } = {}) {
+  const wrap = $('#groups-wrap');
+  const my = ++state.reqId;
+  if (!Groups.enabled()) {
+    wrap.replaceChildren(groupStateBox('groups.notEnabled.title', 'groups.notEnabled.body', '🔧'));
+    return;
+  }
+  const known = Groups.list();
+  const current = state.groupId || known[0]?.id || null;
+
+  if (!current) {
+    wrap.replaceChildren();
+    const box = groupStateBox('groups.empty.title', 'groups.empty.body', '👥');
+    const b = el('button', 'btn btn-primary', t('groups.create'));
+    b.type = 'button';
+    b.addEventListener('click', () => createGroupFlow(b));
+    box.append(b);
+    wrap.append(box);
+    return;
+  }
+  if (state.groupId !== current) {
+    state.groupId = current;
+    history.replaceState(null, '', hashOf());
+  }
+
+  // ポーリング更新（silent）ではリストだけ差し替える。入力欄やフォーカスを壊さない。
+  if (!silent || !$('#group-list')) {
+    wrap.replaceChildren();
+
+    // 参加中のグループ切替（2つ以上のときだけ出す）
+    if (known.length > 1) {
+      const chips = el('div', 'group-chips');
+      known.forEach(g => {
+        // 長い名前でチップ行を壊さない（CSS の ellipsis と二段構え / 監査 2026-08-25）
+        const label = (g.name || `#${g.id.slice(0, 4)}`).slice(0, 24);
+        const b = el('button', `chip${g.id === current ? ' is-active' : ''}`, label);
+        b.type = 'button';
+        b.title = g.name || g.id;
+        if (g.id !== current) b.addEventListener('click', () => go({ mode: 'groups', groupId: g.id }));
+        chips.append(b);
+      });
+      wrap.append(chips);
+    }
+
+    // 名前（端末内のみ）＋共有＋離脱
+    const head = el('div', 'group-head');
+    const name = document.createElement('input');
+    name.type = 'text'; name.id = 'group-name'; name.className = 'group-name';
+    name.placeholder = t('groups.name.placeholder');
+    name.maxLength = 40;
+    name.value = Groups.nameOf(current);
+    name.setAttribute('aria-label', t('groups.name.placeholder'));
+    name.addEventListener('change', () => { Groups.rename(current, name.value.trim()); });
+    const share = el('button', 'btn btn-primary btn-sm', t('groups.share'));
+    share.type = 'button';
+    share.addEventListener('click', () => copyInvite(current));
+    const leave = el('button', 'btn btn-ghost btn-sm', t('groups.leave'));
+    leave.type = 'button';
+    leave.addEventListener('click', () => {
+      // リンクを失っていればグループIDは復元できない。ワンタップで消さない（監査 2026-08-25）
+      if (!confirm(t('groups.leave.confirm'))) return;
+      Groups.forget(current);
+      state.groupId = null;
+      go({ mode: 'groups', groupId: null });
+    });
+    head.append(name, share, leave);
+    wrap.append(head);
+
+    // 追加フォーム（URL 貼り付け → videoId 抽出 → サーバーへ）
+    const form = el('form', 'group-add');
+    const input = document.createElement('input');
+    input.type = 'url'; input.id = 'group-add-input';
+    input.placeholder = t('groups.add.placeholder');
+    input.setAttribute('aria-label', t('groups.add.placeholder'));
+    input.autocomplete = 'off';
+    const submit = el('button', 'btn btn-primary', t('groups.add'));
+    submit.type = 'submit';
+    form.append(input, submit);
+    form.addEventListener('submit', async e => {
+      e.preventDefault();
+      const videoId = extractVideoId(input.value);
+      if (!videoId) { toast(t('groups.invalid')); return; }
+      submit.disabled = true;
+      const ok = await Groups.add(current, videoId);
+      submit.disabled = false;
+      if (ok) { input.value = ''; toast(t('groups.added')); renderGroups({ silent: true }); }
+      else toast(t('groups.addFail'));
+    });
+    wrap.append(form);
+
+    const list = el('ol', 'list group-list');
+    list.id = 'group-list';
+    wrap.append(list);
+    wrap.append(el('p', 'group-privacy', t('groups.privacy')));
+  }
+
+  const data = await Groups.fetchGroup(current);
+  if (my !== state.reqId) return;
+  const list = $('#group-list');
+  if (!list) return;
+  if (!data) {
+    list.replaceChildren();
+    const li = el('li');
+    li.append(groupStateBox('groups.error.title', 'groups.error.body', '⏳'));
+    list.append(li);
+    return;
+  }
+  if (!data.items.length) {
+    list.replaceChildren();
+    const li = el('li');
+    li.append(groupStateBox('groups.emptyList.title', 'groups.emptyList.body', '🎬'));
+    list.append(li);
+    Groups.schedulePoll();
+    return;
+  }
+  // メタ情報（題名）は 公開JSON → Worker 経由 oEmbed の順で解決する（詳細は Groups.meta）
+  const rows = await Promise.all(data.items.slice(0, GROUPS.maxItems).map(async (it, i) => {
+    const meta = await Groups.meta(it.videoId);
+    return { ...it, rank: i + 1, title: meta?.title || it.videoId, author: meta?.author || '' };
+  }));
+  if (my !== state.reqId) return;
+  list.replaceChildren();
+  rows.forEach(it => {
+    const li = el('li', 'card');
+    li.dataset.videoId = it.videoId;
+    li.dataset.rank = String(it.rank);        // 1位の金色など既存の順位装飾をそのまま効かせる
+    const a = el('a', 'card-link');
+    a.href = `https://www.youtube.com/watch?v=${it.videoId}`;
+    a.target = '_blank';
+    a.rel = 'noopener noreferrer';
+    a.setAttribute('aria-label', `${t('card.rank', { n: it.rank })} ${it.title}`);
+    const col = el('span', 'rankcol');
+    col.append(el('span', 'rank', String(it.rank)));
+    a.append(col);
+    const th = el('span', 'thumb');
+    const img = new Image();
+    img.src = thumbUrl(it.videoId); img.alt = ''; img.loading = 'lazy';
+    th.append(img);
+    a.append(th);
+    const info = el('span', 'info');
+    info.append(el('span', 'title', it.title));
+    // 通常カードと同じ .chan（1行省略）。無スタイルの span だと長い名前で行高が崩れる（監査 2026-08-25）
+    if (it.author) info.append(el('span', 'chan', it.author));
+    const meta = el('span', 'meta');
+    meta.append(el('span', 'group-count', t('groups.count', { n: it.count })));
+    if (it.addedAt) meta.append(el('span', 'dot', '·'), el('span', null, fmtAgo(new Date(it.addedAt).toISOString())));
+    info.append(meta);
+    a.append(info);
+    li.append(a);
+    list.append(li);
+  });
+  Groups.schedulePoll();
+}
+
 /* ------------------------------------------------------------------ views */
-const VIEWS = { everyone: '#view-everyone', my: '#view-my', tags: '#view-tags', map: '#view-map' };
+const VIEWS = { everyone: '#view-everyone', my: '#view-my', tags: '#view-tags', map: '#view-map', groups: '#view-groups' };
 
 async function renderCurrentView() {
   for (const [mode, sel] of Object.entries(VIEWS)) $(sel).hidden = mode !== state.mode;
@@ -1318,11 +1672,13 @@ async function renderCurrentView() {
     else if (state.mode === 'my')  { await renderMy(); }
     else if (state.mode === 'tags'){ await renderFind(); }
     else if (state.mode === 'map') { await renderMap(); }
+    else if (state.mode === 'groups') { await renderGroups(); }
   } catch (err) {
     console.error('render failed', err);
     const list = { my: '#my-list', tags: '#find-list' }[state.mode];
     if (list) { const n = $(list); n.replaceChildren(stateNode('error')); endLoading(n); }
     else if (state.mode === 'map') $('#map-wrap').replaceChildren(stateNode('error').firstChild);
+    else if (state.mode === 'groups') $('#groups-wrap').replaceChildren(stateNode('error').firstChild);
   }
 }
 
@@ -1330,6 +1686,7 @@ async function renderCurrentView() {
 function hashOf(s = state) {
   if (s.mode === 'everyone') return `#/everyone/${s.country}/${s.section}/${s.period}/${s.category}/${s.metric}`;
   if (s.mode === 'tags') return `#/tags/${s.country}`;
+  if (s.mode === 'groups' && s.groupId) return `#/groups/${s.groupId}`;
   return `#/${s.mode}`;
 }
 
@@ -1348,6 +1705,10 @@ function readHash() {
     state.metric = metric === 'growth' ? 'growth' : 'published';
   } else if (mode === 'tags' && rest[0] && COUNTRIES.some(c => c.code === rest[0])) {
     state.country = rest[0];
+  } else if (mode === 'groups') {
+    // 招待リンク（#/groups/{id}）で開いたら、そのグループを端末の一覧に覚えて自動参加する。
+    state.groupId = /^[a-z0-9]{10}$/.test(rest[0] || '') ? rest[0] : null;
+    if (state.groupId && Groups.enabled()) Groups.remember(state.groupId);
   }
   return true;
 }
@@ -1518,6 +1879,9 @@ function openSettings({ focus = true, refocus = null } = {}) {
   const link = el('a', 'set-link', t('settings.privacy'));
   link.href = 'privacy.html';
   about.append(link);
+  const terms = el('a', 'set-link', t('settings.terms'));
+  terms.href = 'terms.html';
+  about.append(terms);
   body.append(about);
 
   $('#sheet-backdrop').hidden = false;
@@ -1628,6 +1992,8 @@ async function boot() {
   applyStatic();
   buildAxes();
   bindChrome();
+  // v4 グループ: endpoint が空の間はタブごと出さない（config.js GROUPS 参照）
+  $('#mode-groups').hidden = !Groups.enabled();
   readHash();
   state.index = await getJSON('data/index.json', { soft: true });
   // 起動時だけ、データのある組み合わせに寄せる（保存された国が未収集のときの空振り防止）

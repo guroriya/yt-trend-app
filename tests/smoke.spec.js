@@ -18,8 +18,11 @@ test.describe('P0 スモーク', () => {
     await expect(page).toHaveTitle(new RegExp(I18N.en['app.name']));
     await expect(page.locator('.appbar .brand-name')).toHaveText(I18N.en['app.name']);
 
-    // モードは みんな／自分／ワード／世界 の4枚（ORDER §2-11, §2-12, §2-13）
-    await expect(page.locator('nav.modes .mode')).toHaveCount(4);
+    // モードは みんな／自分／ワード／世界／グループ の5枚。ただしグループ（v4）は
+    // GROUPS.endpoint が空の間は hidden のまま＝見えるのは4枚（2026-08-25 第3弾）
+    await expect(page.locator('nav.modes .mode')).toHaveCount(5);
+    await expect(page.locator('nav.modes .mode:visible')).toHaveCount(4);
+    await expect(page.locator('#mode-groups')).toBeHidden();
     await expect(page.locator('.mode[data-mode="everyone"]')).toHaveAttribute('aria-selected', 'true');
 
     // 軸は config.js から生成される。数が合わない＝設定と UI がずれている。

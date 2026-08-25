@@ -58,6 +58,8 @@
   <button type="button" class="mode" role="tab" data-mode="my" aria-selected="false"><span data-i18n="mode.my">You</span></button>
   <button type="button" class="mode" role="tab" data-mode="tags" aria-selected="false"><span data-i18n="mode.tags">Words</span></button>
   <button type="button" class="mode" role="tab" data-mode="map" aria-selected="false"><span data-i18n="mode.map">World</span></button>
+  <!-- v4 グループ。config.js の GROUPS.endpoint が空の間は app.js が hidden のままにする -->
+  <button type="button" class="mode" role="tab" data-mode="groups" aria-selected="false" id="mode-groups" hidden><span data-i18n="mode.groups">Groups</span></button>
 </nav>
 
 <!-- ─────────────── みんな ─────────────── -->
@@ -145,12 +147,23 @@
   <main class="map-wrap" id="map-wrap"></main>
 </section>
 
+<!-- ─────────────── グループ（v4・2026-08-25 第3弾） ─────────────── -->
+<section class="view" id="view-groups" data-view="groups" hidden>
+  <div class="pane-head">
+    <h1 class="pane-title" data-i18n="groups.title">Group ranking</h1>
+    <p class="pane-sub" data-i18n="groups.subtitle"></p>
+  </div>
+  <main class="groups-wrap" id="groups-wrap"></main>
+</section>
+
 <!-- ─────────────── footer ─────────────── -->
 <footer class="foot">
   <p class="foot-line" data-i18n="app.thirdParty"></p>
   <p class="foot-line" data-i18n="app.attribution"></p>
   <p class="foot-links">
     <a href="privacy.html" data-i18n="settings.privacy">Privacy policy</a>
+    <span aria-hidden="true">·</span>
+    <a href="terms.html" data-i18n="settings.terms">Terms of use</a>
     <span aria-hidden="true">·</span>
     <a href="https://www.youtube.com/t/terms" rel="noopener noreferrer" target="_blank">YouTube Terms of Service</a>
     <span aria-hidden="true">·</span>

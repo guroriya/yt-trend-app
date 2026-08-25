@@ -13,6 +13,9 @@ import {
   DAY_TTL_SECONDS, MAX_VIDEO_KEYS, PRUNE_TO,
   utcDateOf, isValidDate, validateTap,
   emptyDay, reviveDay, applyTap, publicStats, corsHeaders,
+  GROUP_TTL_SECONDS, GROUP_MAX_ITEMS, GROUP_MAX_ADDS_PER_DAY,
+  groupIdFrom, isValidGroupId, validateGroupAdd,
+  emptyGroup, reviveGroup, applyGroupAdd, publicGroup, hotScore, canAddToday,
 } from '../workers/taps/src/lib.mjs';
 
 test.describe('validateTap（入口検証）', () => {
@@ -97,6 +100,76 @@ test.describe('カウンタ', () => {
     const d = applyTap(emptyDay('2026-08-25'), { country: 'JP', videoId: 'AAAAAAAAAAA' });
     expect(publicStats(d)).toEqual({ date: '2026-08-25', total: 1, countries: { JP: 1 } });
     expect('videos' in publicStats(d)).toBe(false);
+  });
+});
+
+/* -------------------------- v4 グループランキング（2026-08-25 第3弾） */
+
+test.describe('グループ: 入口検証と ID', () => {
+  test('groupIdFrom は与えたバイト列から10文字の小文字英数を作る（決定論的）', () => {
+    const id = groupIdFrom(new Uint8Array([0, 1, 2, 3, 4, 5, 6, 7, 8, 9]));
+    expect(id).toMatch(/^[a-z0-9]{10}$/);
+    expect(groupIdFrom(new Uint8Array([0, 1, 2, 3, 4, 5, 6, 7, 8, 9]))).toBe(id);
+    expect(isValidGroupId(id)).toBe(true);
+    expect(isValidGroupId('ABCDEFGHIJ')).toBe(false);   // 大文字は不可
+    expect(isValidGroupId('abc')).toBe(false);
+  });
+
+  test('validateGroupAdd は動画IDだけを受け付ける（自由文は仕組み上保存できない）', () => {
+    expect(validateGroupAdd({ videoId: 'dQw4w9WgXcQ' })).toEqual({ videoId: 'dQw4w9WgXcQ' });
+    expect(validateGroupAdd({ videoId: 'bad' })).toBeNull();
+    expect(validateGroupAdd({ comment: 'hello' })).toBeNull();
+    const ok = validateGroupAdd({ videoId: 'dQw4w9WgXcQ', name: 'me', ip: '1.2.3.4' });
+    expect(Object.keys(ok)).toEqual(['videoId']);       // 余計なフィールドは捨てる
+  });
+});
+
+test.describe('グループ: カウンタとランキング', () => {
+  const NOW = Date.UTC(2026, 7, 25, 12);
+
+  test('同じ動画を複数回（別の人が）追加すると n が増え、スコアが上がる', () => {
+    let g = emptyGroup(NOW);
+    g = applyGroupAdd(g, 'AAAAAAAAAAA', NOW);
+    g = applyGroupAdd(g, 'AAAAAAAAAAA', NOW + 1000);
+    g = applyGroupAdd(g, 'BBBBBBBBBBB', NOW + 2000);
+    const pub = publicGroup(g, NOW + 2000);
+    expect(pub.items[0]).toMatchObject({ videoId: 'AAAAAAAAAAA', count: 2 });
+    expect(pub.items[1]).toMatchObject({ videoId: 'BBBBBBBBBBB', count: 1 });
+  });
+
+  test('hotScore は半減期3日: 古い追加は直近の追加に順位を譲る（ザッピングの趣旨）', () => {
+    // 2回追加されたが3日前 → 1回×直近と同スコアまで減衰。同点なら新しい方が上
+    expect(hotScore(2, NOW, NOW + 72 * 3600e3)).toBeCloseTo(1, 5);
+    let g = emptyGroup(NOW);
+    g = applyGroupAdd(g, 'AAAAAAAAAAA', NOW);
+    g = applyGroupAdd(g, 'AAAAAAAAAAA', NOW);
+    g = applyGroupAdd(g, 'BBBBBBBBBBB', NOW + 72 * 3600e3);
+    const pub = publicGroup(g, NOW + 72 * 3600e3);
+    expect(pub.items[0].videoId).toBe('BBBBBBBBBBB');
+  });
+
+  test('上限を超えたらスコアの低い順に間引き、日別カウンタが1日の追加上限を守る', () => {
+    let g = emptyGroup(NOW);
+    for (let i = 0; i < GROUP_MAX_ITEMS + 5; i++) {
+      g = applyGroupAdd(g, String(i).padStart(11, 'x'), NOW + i);
+    }
+    expect(Object.keys(g.videos).length).toBe(GROUP_MAX_ITEMS);
+    expect(g.adds[utcDateOf(NOW)]).toBe(GROUP_MAX_ITEMS + 5);
+    expect(canAddToday(g, NOW)).toBe(GROUP_MAX_ITEMS + 5 < GROUP_MAX_ADDS_PER_DAY);
+    // 日付が変わればまた追加できる
+    expect(canAddToday(g, NOW + 86400e3)).toBe(true);
+  });
+
+  test('reviveGroup は壊れた保存値を 404 に落とす（作り直さない＝勝手に空グループにしない）', () => {
+    expect(reviveGroup(null)).toBeNull();
+    expect(reviveGroup('garbage')).toBeNull();
+    expect(reviveGroup({ v: 2, createdAt: 1, updatedAt: 1, adds: {}, videos: {} })).toBeNull();
+    const ok = emptyGroup(NOW);
+    expect(reviveGroup(ok)).toBe(ok);
+  });
+
+  test('TTL は 90 日（追加が無いグループは自動消滅）', () => {
+    expect(GROUP_TTL_SECONDS).toBe(90 * 86400);
   });
 });
 

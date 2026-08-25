@@ -539,6 +539,58 @@ ol, ul { list-style: none; margin: 0; padding: 0; }
 .mc-country { font-size: 12px; font-weight: 800; color: var(--accent); letter-spacing: .01em; }
 .mc-row:not(.is-primary) .mc-country { color: var(--text-3); }
 
+/* 各国トップ10のミニリスト（2026-08-25 第3弾「地図拡充」）。行の下に開閉する副次導線 */
+.mc-row { display: flex; flex-wrap: wrap; align-items: center; }
+.mc-row > .mc-btn { flex: 1 1 auto; width: auto; }
+.mc-more {
+  flex: none; min-height: 34px; padding: 0 11px; margin-left: 6px;
+  background: none; border: 1px solid var(--line-strong); border-radius: var(--r-pill);
+  font-size: 12px; font-weight: 700; color: var(--text-2); cursor: pointer;
+  position: relative;
+}
+.mc-more::before { content: ""; position: absolute; inset: -5px 0; } /* 当たり判定を44pxに */
+.mc-more:hover { border-color: var(--text-3); color: var(--text); }
+.mc-more.is-open { border-color: var(--accent); color: var(--accent); }
+.mc-top { flex: 1 1 100%; margin: 0 0 8px; padding: 0 0 0 8px; list-style: none; }
+.mc-top-row {
+  display: flex; align-items: center; gap: 10px; min-height: var(--tap);
+  padding: 4px; text-decoration: none; color: inherit; border-radius: var(--r-sm);
+}
+.mc-top-row:hover { background: var(--bg-elev); }
+.mc-top-rank { flex: none; width: 1.6em; text-align: right; font-size: 12px; font-weight: 800; color: var(--text-3); }
+.mc-top-thumb { flex: none; width: 56px; aspect-ratio: 16/9; border-radius: var(--r-sm); overflow: hidden; background: var(--skel); }
+.mc-top-thumb img { width: 100%; height: 100%; object-fit: cover; }
+/* .title の2行クランプ（-webkit-box）を display:block で潰さないこと（監査 2026-08-25） */
+.mc-top-row .title { font-size: 13px; line-height: 1.35; }
+.mc-top-row .meta { display: block; font-size: 11.5px; color: var(--text-3); }
+
+/* ---------- groups (v4 / 2026-08-25 第3弾) ---------- */
+.groups-wrap { padding: 0 14px 24px; }
+.group-chips { display: flex; flex-wrap: wrap; gap: 6px; padding: 4px 0 8px; }
+/* 名前はチップ幅を際限なく広げない（body の overflow-x で断ち切られるより省略記号が正直） */
+.group-chips .chip { max-width: 100%; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; display: inline-block; line-height: 38px; }
+.group-head { display: flex; flex-wrap: wrap; align-items: center; gap: 8px; padding: 4px 0 8px; }
+.group-name {
+  flex: 1 1 auto; min-width: 8em; min-height: var(--tap); padding: 0 10px;
+  background: var(--bg-sunk); border: 1px solid var(--line-strong); border-radius: var(--r-sm);
+  color: var(--text); font-size: 14px;
+}
+.group-add { display: flex; align-items: center; gap: 8px; padding: 0 0 10px; }
+.group-add input {
+  flex: 1 1 auto; min-width: 8em; min-height: var(--tap); padding: 0 10px;
+  background: var(--bg-sunk); border: 1px solid var(--line-strong); border-radius: var(--r-sm);
+  color: var(--text); font-size: 14px;
+}
+/* プレースホルダが唯一の可視ラベル。UA 既定色は --bg-sunk 面で AA 割れ（監査 2026-08-25 Critical） */
+.group-name::placeholder, .group-add input::placeholder { color: var(--text-3); }
+.group-name:focus-visible, .group-add input:focus-visible { outline: 3px solid var(--accent); outline-offset: 1px; }
+.group-list { margin-top: 4px; }
+.group-count { font-weight: 700; color: var(--accent); }
+.group-privacy { font-size: 11.5px; color: var(--text-3); line-height: 1.6; margin: 14px 0 0; }
+
+/* グループタブが現れると5タブ。360px でも日本語タブ名が欠けないよう詰める（監査 2026-08-25 Critical） */
+.modes:has(#mode-groups:not([hidden])) .mode { padding: 0 2px; font-size: clamp(12.5px, 3.8vw, 14px); }
+
 /* ---------- settings sheet ---------- */
 .sheet-backdrop { position: fixed; inset: 0; background: rgba(8,10,14,.5); z-index: 40; }
 .sheet {

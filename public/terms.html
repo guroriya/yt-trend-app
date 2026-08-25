@@ -1,0 +1,156 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<title>Terms of Use — TrendZap</title>
+<script>
+(function () {
+  try {
+    var raw = localStorage.getItem('ytta.theme');
+    var p = 'auto';
+    try { p = raw == null ? 'auto' : JSON.parse(raw); } catch (e) { p = raw || 'auto'; }
+    var dark = p === 'dark' || (p === 'auto' && window.matchMedia('(prefers-color-scheme: dark)').matches);
+    document.documentElement.setAttribute('data-theme', dark ? 'dark' : 'light');
+  } catch (e) { document.documentElement.setAttribute('data-theme', 'light'); }
+})();
+</script>
+<link rel="stylesheet" href="app.css">
+<style>
+  .doc { max-width: 640px; margin: 0 auto; padding: 16px 16px 48px; }
+  .doc h1 { font-size: 20px; letter-spacing: -.02em; margin: 8px 0 4px; }
+  .doc h2 { font-size: 15px; margin: 26px 0 6px; }
+  .doc p, .doc li { font-size: 13.5px; color: var(--text-2); line-height: 1.65; }
+  .doc li { margin-bottom: 4px; }
+  .doc ul { padding-left: 20px; list-style: disc; }
+  .doc .upd { font-size: 12px; color: var(--text-3); }
+  .doc hr { border: 0; border-top: 1px solid var(--line); margin: 32px 0; }
+  .doc a { color: var(--accent); }
+  .back { display: inline-flex; align-items: center; min-height: 44px; font-weight: 700; font-size: 14px; text-decoration: none; color: var(--accent); }
+</style>
+</head>
+<body>
+<div class="doc">
+  <a class="back" href="./">← TrendZap</a>
+
+  <h1>Terms of Use</h1>
+  <p class="upd">Last updated: 2026-08-25</p>
+
+  <p>These terms apply to your use of TrendZap ("the app"), a free web application that shows
+  public YouTube ranking data. By using the app you agree to these terms. If you do not agree,
+  please do not use the app.</p>
+
+  <h2>1. What the app is</h2>
+  <ul>
+    <li>TrendZap is an independent, third-party application. It is <strong>not</strong> affiliated with,
+    endorsed by, or sponsored by YouTube or Google LLC.</li>
+    <li>The app displays public video metadata obtained through the YouTube API Services and links
+    out to youtube.com. It does not play, embed, download, or modify videos.</li>
+    <li>This product uses the YouTube API Services.</li>
+  </ul>
+
+  <h2>2. YouTube terms apply</h2>
+  <p>Because the app is built on the YouTube API Services, by using it you also agree to the
+  <a href="https://www.youtube.com/t/terms" target="_blank" rel="noopener noreferrer">YouTube Terms of Service</a>.
+  Google's handling of data is described in the
+  <a href="https://policies.google.com/privacy" target="_blank" rel="noopener noreferrer">Google Privacy Policy</a>.
+  Our own handling of data is described in the app's
+  <a href="privacy.html">Privacy Policy</a>.</p>
+
+  <h2>3. Acceptable use</h2>
+  <ul>
+    <li>Use the app for personal, non-commercial browsing of rankings.</li>
+    <li>Do not attempt to disrupt the app, its data endpoints, or its counter server
+    (for example by automated flooding).</li>
+    <li>Community features, where enabled (such as anonymous counters or link-shared group lists),
+    accept only public YouTube video IDs. Do not use them to harass anyone or to promote content
+    that violates YouTube's Community Guidelines. Entries may be removed or rate-limited at any
+    time, and inactive shared lists are deleted automatically.</li>
+  </ul>
+
+  <h2>4. No warranty</h2>
+  <p>The app is provided free of charge, "as is" and "as available", without warranties of any
+  kind. Rankings are produced automatically from public data on a schedule; numbers may lag,
+  contain gaps while data is still being collected, or differ from what YouTube itself shows.
+  We may change, suspend, or discontinue any part of the app at any time.</p>
+
+  <h2>5. Limitation of liability</h2>
+  <p>To the maximum extent permitted by law, we are not liable for any damages arising from your
+  use of (or inability to use) the app. All video content, titles, and thumbnails belong to their
+  respective owners; opening a video takes you to YouTube, where YouTube's terms govern.</p>
+
+  <h2>6. Advertising</h2>
+  <p>The app may show clearly labeled ad cards inside lists. Ads never overlap video playback
+  (the app has no playback).</p>
+
+  <h2>7. Changes to these terms</h2>
+  <p>We may update these terms from time to time. The "Last updated" date above reflects the
+  current version. Continued use of the app after an update means you accept the updated terms.</p>
+
+  <h2>8. Governing law &amp; contact</h2>
+  <p>These terms are governed by the laws of Japan. Questions can be raised as an issue in the
+  project's public repository.</p>
+
+  <hr>
+
+  <h1 lang="ja">利用規約</h1>
+  <p class="upd" lang="ja">最終更新: 2026年8月25日</p>
+
+  <div lang="ja">
+    <p>本規約は、公開されている YouTube ランキング情報を表示する無料のウェブアプリ
+    TrendZap（以下「本アプリ」）の利用に適用されます。本アプリを利用した時点で、
+    本規約に同意したものとみなします。同意いただけない場合は利用をお控えください。</p>
+
+    <h2>1. 本アプリについて</h2>
+    <ul>
+      <li>TrendZap は第三者が開発した非公式アプリです。YouTube および Google LLC とは
+      提携・承認・出資のいずれの関係も<strong>ありません</strong>。</li>
+      <li>本アプリは YouTube API サービスを通じて取得した公開メタデータを表示し、
+      youtube.com へのリンクを提供します。動画の再生・埋め込み・ダウンロード・改変は行いません。</li>
+      <li>This product uses the YouTube API Services.</li>
+    </ul>
+
+    <h2>2. YouTube の規約の適用</h2>
+    <p>本アプリは YouTube API サービスの上に成り立っているため、本アプリの利用にあたっては
+    <a href="https://www.youtube.com/t/terms" target="_blank" rel="noopener noreferrer">YouTube 利用規約</a>にも
+    同意していただきます。Google によるデータの取り扱いは
+    <a href="https://policies.google.com/privacy" target="_blank" rel="noopener noreferrer">Google プライバシーポリシー</a>を、
+    本アプリ自身のデータの取り扱いは<a href="privacy.html">プライバシーポリシー</a>をご覧ください。</p>
+
+    <h2>3. 禁止事項・利用ルール</h2>
+    <ul>
+      <li>本アプリは個人的な閲覧のためにご利用ください。</li>
+      <li>本アプリ・データ配信・集計サーバーへの妨害行為（自動化された大量アクセス等）は禁止します。</li>
+      <li>コミュニティ機能（匿名カウンタや、リンク共有型のグループリスト等）が有効な場合、
+      受け付けるのは公開されている YouTube の動画IDのみです。嫌がらせや、YouTube の
+      コミュニティガイドラインに違反するコンテンツの宣伝に使わないでください。
+      登録内容は予告なく削除・制限されることがあり、利用のない共有リストは自動的に消去されます。</li>
+    </ul>
+
+    <h2>4. 無保証</h2>
+    <p>本アプリは無料で「現状有姿」で提供されます。いかなる保証もありません。
+    ランキングは公開データから定期的に自動生成されるため、数値の遅延や、収集中の抜け、
+    YouTube 本体の表示との差異が生じることがあります。本アプリの全部または一部は、
+    予告なく変更・停止・終了することがあります。</p>
+
+    <h2>5. 免責</h2>
+    <p>法令の許す最大限の範囲で、本アプリの利用（または利用できないこと）から生じた損害について
+    当方は責任を負いません。動画・タイトル・サムネイルの権利は各権利者に帰属します。
+    動画を開くと YouTube に遷移し、以後は YouTube の規約が適用されます。</p>
+
+    <h2>6. 広告について</h2>
+    <p>本アプリはリスト内に「広告」と明示したカードを表示することがあります。
+    広告が動画の再生に重なることはありません（本アプリに再生機能はありません）。</p>
+
+    <h2>7. 規約の変更</h2>
+    <p>本規約は改定されることがあります。最新の版は冒頭の「最終更新」日をご確認ください。
+    改定後も利用を続けた場合、改定後の規約に同意したものとみなします。</p>
+
+    <h2>8. 準拠法・お問い合わせ</h2>
+    <p>本規約は日本法に準拠します。お問い合わせは公開リポジトリの Issue にてお願いします。</p>
+  </div>
+
+  <p style="margin-top:32px"><a class="back" href="./">← TrendZap</a></p>
+</div>
+</body>
+</html>

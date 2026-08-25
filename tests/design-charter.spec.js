@@ -15,7 +15,7 @@
 
 import { test, expect } from '@playwright/test';
 import {
-  gotoApp, waitForList, everyoneHash, seedLearning,
+  gotoApp, waitForList, waitForApp, everyoneHash, seedLearning, seedStorage, blockThumbnails,
   runAudit, criticals, formatFindings,
   readDataset, COUNTRIES, SECTIONS, PERIODS,
 } from './helpers.js';
@@ -132,6 +132,20 @@ test.describe('デザイン憲章', () => {
     await page.locator('#btn-settings').click();
     await expect(page.locator('#sheet-settings')).toBeVisible();
     expectNoCritical(await auditAt(page), '設定シート');
+  });
+
+  // v4 グループ（2026-08-25 第3弾）。タブが5枚に増える状態と、入力フォームのある
+  // ビュー本体を英日両方で監査対象に含める（監査エージェントの指摘 Should-8）。
+  test('グループタブ（?groups=mock）でも英日とも憲章を満たす', async ({ page }) => {
+    for (const lang of ['en', 'ja']) {
+      await blockThumbnails(page);
+      await seedStorage(page, { 'ytta.hintSeen': true });
+      await page.goto(`/?lang=${lang}&groups=mock#/groups/friend0001`);
+      await waitForApp(page);
+      await expect(page.locator('#mode-groups')).toBeVisible();
+      await expect(page.locator('#group-list .card').first()).toBeVisible();
+      expectNoCritical(await auditAt(page), `グループタブ（${lang}）`);
+    }
   });
 
   test('学習インスペクタの操作ボタンも 44px を満たす', async ({ page }) => {
