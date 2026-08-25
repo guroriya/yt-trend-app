@@ -8,6 +8,10 @@
 export const COUNTRIES = [
   { code: 'JP', flag: '🇯🇵', lat: 36.2, lon: 138.3, hl: 'ja', primary: true },
   { code: 'US', flag: '🇺🇸', lat: 39.8, lon: -98.6, hl: 'en', primary: true },
+  // 2026-08-25 発注者改訂（第2弾）: 期間別ランキングの対象国を追加。ここに足すだけで
+  // 収集・UI・テストが追随する。追加前に docs/BUDGET.md を更新すること（ORDER §4）。
+  { code: 'KR', flag: '🇰🇷', lat: 36.5, lon: 127.9, hl: 'ko', primary: true },
+  { code: 'GB', flag: '🇬🇧', lat: 54.0, lon: -2.0,  hl: 'en', primary: true },
 ];
 
 /** 部門（ORDER §2-2）。 */
@@ -29,13 +33,15 @@ export const PERIODS = [
  * カテゴリ（ORDER §2-3, YouTube 公式 videoCategory 準拠）。
  * `periods` は「そのカテゴリを取る期間」。割当の都合で総合以外は 24h のみ（ORDER §2-3）。
  */
+// 2026-08-25 発注者改訂（第2弾）: カテゴリ別タブを全期間に拡張（従来は割当の都合で24hのみ）。
+// 収集は期間帯ごとに別ジョブ（categories / catweekmonth / catyearall）で、planner が予算内に収める。
 export const CATEGORIES = [
   { id: 'all',           ytId: null, periods: ['24h', 'week', 'month', 'year', 'all'], size: 100 },
-  { id: 'music',         ytId: '10', periods: ['24h'], size: 50 },
-  { id: 'gaming',        ytId: '20', periods: ['24h'], size: 50 },
-  { id: 'entertainment', ytId: '24', periods: ['24h'], size: 50 },
-  { id: 'sports',        ytId: '17', periods: ['24h'], size: 50 },
-  { id: 'news',          ytId: '25', periods: ['24h'], size: 50 },
+  { id: 'music',         ytId: '10', periods: ['24h', 'week', 'month', 'year', 'all'], size: 50 },
+  { id: 'gaming',        ytId: '20', periods: ['24h', 'week', 'month', 'year', 'all'], size: 50 },
+  { id: 'entertainment', ytId: '24', periods: ['24h', 'week', 'month', 'year', 'all'], size: 50 },
+  { id: 'sports',        ytId: '17', periods: ['24h', 'week', 'month', 'year', 'all'], size: 50 },
+  { id: 'news',          ytId: '25', periods: ['24h', 'week', 'month', 'year', 'all'], size: 50 },
 ];
 
 /** UI 言語（ORDER §2-5）。既定は英語。 */
@@ -72,6 +78,7 @@ export const MAP_COUNTRIES = [
 export const SEARCH_Q = {
   ja: 'の|に|を|が|は',
   en: 'a|the|i|to',
+  ko: '이|의|는|을|하',
   default: 'a|the',
 };
 
@@ -98,14 +105,15 @@ export const QUOTA = {
 export const SCHEDULE = {
   cronHours: 1, // GitHub Actions の cron は毎時。実行するかどうかは planner が決める
   jobs: [
-    { id: 'top24h',     everyHours: 6,   floorHours: 24,  priority: 1, desiredHours: 1 },
-    { id: 'weekmonth',  everyHours: 24,  floorHours: 168, priority: 2, desiredHours: 24 },
-    { id: 'categories', everyHours: 24,  floorHours: 168, priority: 3, desiredHours: 24 },
-    { id: 'yearall',    everyHours: 168, floorHours: 720, priority: 4, desiredHours: 168 },
-    { id: 'map',        everyHours: 24,  floorHours: 168, priority: 5, desiredHours: 24 },
+    { id: 'top24h',       everyHours: 6,   floorHours: 24,  priority: 1, desiredHours: 1 },
+    { id: 'weekmonth',    everyHours: 24,  floorHours: 168, priority: 2, desiredHours: 24 },
+    { id: 'categories',   everyHours: 24,  floorHours: 168, priority: 3, desiredHours: 24 },   // カテゴリ×24h
+    { id: 'map',          everyHours: 24,  floorHours: 24,  priority: 4, desiredHours: 24 },   // 26 units と激安なので毎日より遅くしない（floor=24h）
+    { id: 'catweekmonth', everyHours: 48,  floorHours: 336, priority: 5, desiredHours: 24 },   // カテゴリ×週間・月間
+    { id: 'yearall',      everyHours: 168, floorHours: 720, priority: 6, desiredHours: 168 },
+    { id: 'catyearall',   everyHours: 336, floorHours: 720, priority: 7, desiredHours: 168 },  // カテゴリ×年間・全期間
     // タグ集計は公開中の JSON を数え直すだけで API を使わない（0 units）。
-    // planner の対象に入れておくと「いつ回すか」も1箇所で管理できる。
-    { id: 'tags',       everyHours: 6,   floorHours: 24,  priority: 6, desiredHours: 6 },
+    { id: 'tags',         everyHours: 6,   floorHours: 24,  priority: 8, desiredHours: 6 },
   ],
 };
 

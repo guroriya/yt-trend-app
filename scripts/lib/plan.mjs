@@ -48,9 +48,20 @@ export function listsOfJob(jobId) {
     case 'yearall':
       eachCS((c, s) => ['year', 'all'].forEach(p => push(c, s, p, 'all')));
       break;
+    // カテゴリ別は期間帯ごとに別ジョブ（更新頻度が違う。2026-08-25 発注者改訂で全期間に拡張）
     case 'categories':
       eachCS((c, s) => CATEGORIES.filter(x => x.id !== 'all').forEach(cat => {
-        cat.periods.forEach(p => push(c, s, p, cat.id));
+        cat.periods.filter(p => p === '24h').forEach(p => push(c, s, p, cat.id));
+      }));
+      break;
+    case 'catweekmonth':
+      eachCS((c, s) => CATEGORIES.filter(x => x.id !== 'all').forEach(cat => {
+        cat.periods.filter(p => p === 'week' || p === 'month').forEach(p => push(c, s, p, cat.id));
+      }));
+      break;
+    case 'catyearall':
+      eachCS((c, s) => CATEGORIES.filter(x => x.id !== 'all').forEach(cat => {
+        cat.periods.filter(p => p === 'year' || p === 'all').forEach(p => push(c, s, p, cat.id));
       }));
       break;
     case 'map':
@@ -127,6 +138,13 @@ export function planSchedule({ dailyUnits = QUOTA.dailyUnits } = {}) {
       if (total() <= softLimit) break;
       if (j.costPerRun > 0) { j.skipped = true; j.everyHours = Infinity; degraded = true; }
     }
+    // 落とす順は priority 順なので、安いジョブ（map=26 units）が重いジョブの巻き添えで
+    // 消えることがある。空いた枠に収まるものは、重要な順に最低頻度で復活させる。
+    for (const j of [...jobs].sort((a, b) => a.priority - b.priority)) {
+      if (!j.skipped) continue;
+      const at = Math.min(j.floorHours, LADDER[LADDER.length - 1]);
+      if (total() + j.costPerRun * runsPerDay(at) <= softLimit) { j.skipped = false; j.everyHours = at; }
+    }
   }
 
   return {
@@ -161,7 +179,7 @@ export function formatPlan(plan) {
     const every = j.skipped ? 'skipped' : (j.everyHours >= 24
       ? `${j.everyHours / 24} day(s)`
       : `${j.everyHours}h`);
-    return `  ${j.id.padEnd(11)} every ${every.padEnd(9)} ${String(j.costPerRun).padStart(5)} u/run  ${String(j.dailyUnits).padStart(6)} u/day`;
+    return `  ${j.id.padEnd(13)} every ${every.padEnd(9)} ${String(j.costPerRun).padStart(5)} u/run  ${String(j.dailyUnits).padStart(6)} u/day`;
   });
   return [
     `plan: ${plan.total} / ${plan.dailyUnits} units per day (soft limit ${plan.softLimit})`,

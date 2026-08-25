@@ -249,12 +249,18 @@ async function runMapJob() {
   currentJob = 'map';
   log.step(`map — ${MAP_COUNTRIES.length} countries`);
   const items = [];
+  const usedVideoIds = new Set();   // 国ごとに違う動画を出すための重複よけ
   for (const mc of MAP_COUNTRIES) {
     if (!canSpend(QUOTA.costVideos)) break;
     try {
+      // その国の「人気チャート1位」をそのまま代表にする。再生数の絶対値で選び直すと、
+      // 世界的にバズった同じ動画が何か国もの代表になってしまう（2026-08-25 発注者指摘）。
       const top = await yt.mostPopular({ regionCode: mc.code, maxResults: 5, costVideos: QUOTA.costVideos });
-      const best = top.filter(v => v.viewCount != null).sort((a, b) => b.viewCount - a.viewCount)[0];
+      const ranked = top.filter(v => v.viewCount != null);
+      // それでも重なるときは、まだ使っていない上位の動画に譲る（同じ絵が並ぶのを避ける）。
+      const best = ranked.find(v => !usedVideoIds.has(v.videoId)) || ranked[0];
       if (!best) continue;
+      usedVideoIds.add(best.videoId);
       // normalizeVideo は isShort:false 固定。長さから補正したものを母集団にも入れる
       // （補正前を入れると「伸び」ランキングの部門分けが全部 video 側に寄る）。
       const item = { ...best, isShort: best.durationSec > 0 && best.durationSec <= SHORT_MAX_SEC };

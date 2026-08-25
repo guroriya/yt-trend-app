@@ -21,7 +21,7 @@ import {
 import { planSchedule, costOfList, costOfJob, listsOfJob, isDue } from '../scripts/lib/plan.mjs';
 import { rankTerms, extractTerms } from '../scripts/lib/tags.mjs';
 import { validateIndex, validateRanking, validateMap, validateTags } from '../scripts/lib/schema.mjs';
-import { QUOTA, COUNTRIES, SECTIONS } from '../public/js/config.js';
+import { QUOTA, COUNTRIES, SECTIONS, CATEGORIES } from '../public/js/config.js';
 import { PUBLIC_DIR, readJSON } from './helpers.js';
 
 /* ------------------------------------------------------------------ pure */
@@ -79,21 +79,35 @@ test.describe('plan.mjs — 割当セーフガード', () => {
     expect(costOfList(1)).toBe(101);
   });
 
-  test('ジョブ別の費用が docs/BUDGET.md と一致する', () => {
+  test('ジョブ別の費用が docs/BUDGET.md と一致する（4か国・カテゴリ全期間）', () => {
     expect(listsOfJob('top24h')).toHaveLength(COUNTRIES.length * SECTIONS.length);
-    expect(costOfJob('top24h')).toBe(808);
-    expect(costOfJob('weekmonth')).toBe(1616);
-    expect(costOfJob('yearall')).toBe(1616);
-    expect(costOfJob('categories')).toBe(2020);
+    expect(costOfJob('top24h')).toBe(1616);
+    expect(costOfJob('weekmonth')).toBe(3232);
+    expect(costOfJob('yearall')).toBe(3232);
+    expect(costOfJob('categories')).toBe(4040);       // カテゴリ×24h
+    expect(costOfJob('catweekmonth')).toBe(8080);     // カテゴリ×週間・月間
+    expect(costOfJob('catyearall')).toBe(8080);       // カテゴリ×年間・全期間
+    expect(costOfJob('map')).toBe(26);
     expect(costOfJob('tags')).toBe(0);
+    // カテゴリのリストは3ジョブに漏れなく重複なく分かれること（期間帯で分割しているため）
+    const catLists = ['categories', 'catweekmonth', 'catyearall'].flatMap(listsOfJob);
+    const expected = COUNTRIES.length * SECTIONS.length
+      * CATEGORIES.filter(c => c.id !== 'all').reduce((n, c) => n + c.periods.length, 0);
+    expect(catLists).toHaveLength(expected);
+    expect(new Set(catLists.map(l => `${l.country}/${l.section}/${l.period}/${l.category}`)).size)
+      .toBe(expected);
   });
 
-  test('既定割当では 1日 7,125 units、ソフト上限 8,000 の下に収まる', () => {
+  test('既定割当では 1日 7,837 units、ソフト上限 8,000 の下に収まる', () => {
     const plan = planSchedule({ dailyUnits: 10000 });
-    expect(plan.total).toBe(7125);
+    expect(plan.total).toBe(7837);
     expect(plan.total).toBeLessThanOrEqual(plan.softLimit);
-    expect(plan.jobs.find(j => j.id === 'top24h').everyHours).toBe(6);
-    expect(plan.degraded).toBe(false);
+    expect(plan.jobs.find(j => j.id === 'top24h').everyHours).toBe(8);
+    // 4か国＋カテゴリ全期間は既定割当に収まりきらないので、planner が間隔を落として合わせる
+    expect(plan.degraded).toBe(true);
+    // 安い map（26 units）は毎日を維持する
+    expect(plan.jobs.find(j => j.id === 'map').everyHours).toBe(24);
+    expect(plan.jobs.some(j => j.skipped)).toBe(false);   // 落とすだけで、捨てはしない
   });
 
   test('割当を増やすと 24時間ランキングが自動で毎時に近づく（docs/BUDGET.md の表）', () => {
@@ -101,9 +115,12 @@ test.describe('plan.mjs — 割当セーフガード', () => {
       const p = planSchedule({ dailyUnits: units });
       return [p.jobs.find(j => j.id === 'top24h').everyHours, p.total];
     };
-    expect(at(15000)).toEqual([3, 10357]);
-    expect(at(20000)).toEqual([2, 13589]);
-    expect(at(30000)).toEqual([1, 23285]);   // ORDER §4 の理想
+    expect(at(15000)).toEqual([6, 11954]);
+    expect(at(20000)).toEqual([6, 15955]);
+    expect(at(30000)).toEqual([4, 22650]);
+    expect(at(50000)).toEqual([2, 36386]);
+    // ORDER §4 の理想「24h＝毎時」は 4か国＋カテゴリ全期間では 10万 units 級が要る
+    expect(at(100000)[0]).toBe(1);
   });
 
   test('割当が足りないと priority の低いジョブから間隔を落とし、最後はスキップする', () => {
@@ -113,8 +130,12 @@ test.describe('plan.mjs — 割当セーフガード', () => {
       expect(p.degraded).toBe(true);
       // 24時間ランキングは最後まで残す（priority 1）
       const top = p.jobs.find(j => j.id === 'top24h');
-      const cats = p.jobs.find(j => j.id === 'categories');
-      if (cats.skipped) expect(top.skipped).toBe(false);
+      const cats = p.jobs.find(j => j.id === 'catyearall');   // いちばん重く優先度が低い
+      // 重いカテゴリ系より先に 24h が捨てられることはない（捨てるなら最後）
+      if (top.skipped) expect(cats.skipped).toBe(true);
+      // 安い map（26 units/日）は、重いジョブを落とした空き枠で必ず生き残る
+      expect(p.jobs.find(j => j.id === 'map').skipped).toBe(false);
+      expect(cats.skipped || cats.everyHours >= 24).toBe(true);
     }
   });
 

@@ -70,6 +70,19 @@
     <div class="axis-row axis-row-metric" id="axis-metric-row" hidden>
       <div class="segmented segmented-metric" id="axis-metric" role="tablist"></div>
     </div>
+    <!-- 絞り込み＋ピン留め。憲章「一覧性」を守るため1行に畳んでいる -->
+    <div class="searchbar">
+      <span class="search-ico" aria-hidden="true">
+        <svg viewBox="0 0 24 24"><path d="M10.5 3a7.5 7.5 0 1 0 4.55 13.45l4.25 4.25 1.4-1.4-4.25-4.25A7.5 7.5 0 0 0 10.5 3m0 2a5.5 5.5 0 1 1 0 11a5.5 5.5 0 0 1 0-11"/></svg>
+      </span>
+      <input type="search" id="q" autocomplete="off" enterkeyhint="search"
+             data-i18n-placeholder="search.placeholder" data-i18n-aria="search.aria">
+      <button type="button" id="q-clear" class="q-clear" data-i18n-aria="search.clear" hidden>✕</button>
+      <a id="q-yt" class="btn btn-ghost btn-sm q-yt" target="_blank" rel="noopener noreferrer" hidden></a>
+      <span id="favstar-slot"></span>
+    </div>
+    <!-- よく見るランキング（端末内のみ・自動＋手動ピン）。無い時は行ごと出さない -->
+    <div class="favs" id="favs" hidden></div>
   </div>
 
   <p class="statusbar" id="statusbar" aria-live="polite"></p>
@@ -95,14 +108,30 @@
   </main>
 </section>
 
-<!-- ─────────────── ワード（v2） ─────────────── -->
+<!-- ─────────────── 検索（2026-08-25 発注者改訂: ワードタブを置き換え） ─────────────── -->
 <section class="view" id="view-tags" data-view="tags" hidden>
   <div class="pane-head">
-    <h1 class="pane-title" data-i18n="tags.title">Words on the rise</h1>
-    <p class="pane-sub" data-i18n="tags.subtitle"></p>
+    <h1 class="pane-title" data-i18n="find.title">Search</h1>
+    <p class="pane-sub" data-i18n="find.subtitle"></p>
   </div>
+  <div class="axes find-axes">
+    <div class="searchbar">
+      <span class="search-ico" aria-hidden="true">
+        <svg viewBox="0 0 24 24"><path d="M10.5 3a7.5 7.5 0 1 0 4.55 13.45l4.25 4.25 1.4-1.4-4.25-4.25A7.5 7.5 0 0 0 10.5 3m0 2a5.5 5.5 0 1 1 0 11a5.5 5.5 0 0 1 0-11"/></svg>
+      </span>
+      <input type="search" id="fq" autocomplete="off" enterkeyhint="search"
+             data-i18n-placeholder="find.placeholder" data-i18n-aria="find.placeholder">
+      <button type="button" id="fq-clear" class="q-clear" data-i18n-aria="search.clear" hidden>✕</button>
+    </div>
+    <div class="axis-row find-filters">
+      <div class="axis axis-periods" id="find-periods" role="tablist" data-i18n-aria="find.scope.period"></div>
+      <div class="segmented" id="find-sections" role="tablist" data-i18n-aria="find.scope.section"></div>
+    </div>
+  </div>
+  <p class="statusbar" id="find-status" aria-live="polite"></p>
   <main class="list-wrap">
-    <ol class="taglist" id="tag-list"></ol>
+    <ol class="list" id="find-list"></ol>
+    <div class="find-words" id="find-words"></div>
   </main>
 </section>
 

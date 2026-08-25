@@ -17,6 +17,7 @@ import { test, expect } from '@playwright/test';
 import {
   gotoApp, waitForList, everyoneHash, seedLearning,
   runAudit, criticals, formatFindings,
+  readDataset, COUNTRIES, SECTIONS, PERIODS,
 } from './helpers.js';
 
 /** 指摘のうち Critical が 0 であること。落ちたら中身をそのまま出す。 */
@@ -114,8 +115,13 @@ test.describe('デザイン憲章', () => {
     expectNoCritical(await auditAt(page), '自分タブ');
 
     await page.locator('.mode[data-mode="tags"]').click();
-    await expect(page.locator('#tag-list .tagrow').first()).toBeVisible();
-    expectNoCritical(await auditAt(page), 'ワードタブ');
+    await expect(page.locator('#find-words .chip').first()).toBeVisible();
+    expectNoCritical(await auditAt(page), '検索タブ（空）');
+    // 検索語はモックの実データから採る（言語に依存する固定文字列を書かない）
+    const seed = readDataset(COUNTRIES[0].code, SECTIONS[0].id, PERIODS[0].id);
+    await page.locator('#fq').fill(seed.items[0].title.slice(0, 3));
+    await expect(page.locator('#find-list .card[data-video-id]').first()).toBeVisible();
+    expectNoCritical(await auditAt(page), '検索タブ（結果）');
 
     await page.locator('.mode[data-mode="map"]').click();
     await expect(page.locator('#map-wrap .mc-btn').first()).toBeVisible();

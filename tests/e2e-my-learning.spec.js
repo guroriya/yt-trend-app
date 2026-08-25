@@ -266,16 +266,16 @@ test.describe('世界タブ（ORDER §2-13）', () => {
   });
 });
 
-test.describe('ワードタブ（ORDER §2-12）', () => {
-  test('勢いのある語が順位つきで出る', async ({ page }) => {
+test.describe('検索タブ（旧ワードタブ / ORDER §2-12 の語は検索の入口として残す）', () => {
+  test('勢いのある語がチップとして出て、押すと検索語になる', async ({ page }) => {
     await gotoApp(page);
     await page.locator('.mode[data-mode="tags"]').click();
     await expect(page).toHaveURL(new RegExp(`#/tags/${COUNTRIES[0].code}$`));
 
-    const rows = page.locator('#tag-list .tagrow');
-    expect(await rows.count()).toBeGreaterThan(9);
-    await expect(rows.first().locator('.tagrank')).toHaveText('1');
-    await expect(rows.first().locator('.tagterm')).not.toBeEmpty();
-    await expect(rows.first().locator('.tagcount')).toHaveText(/\d/);
+    const chips = page.locator('#find-words .chip');
+    expect(await chips.count()).toBeGreaterThan(9);
+    const term = (await chips.first().textContent()).trim();
+    await chips.first().click();
+    await expect(page.locator('#fq')).toHaveValue(term);
   });
 });

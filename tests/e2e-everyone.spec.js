@@ -37,7 +37,7 @@ test.describe('全タブ網羅', () => {
     }
   });
 
-  test('カテゴリタブ（24h）を全部踏める。総合以外の期間ではカテゴリが隠れる', async ({ page }) => {
+  test('カテゴリタブを全部踏める（config.js の periods どおりに出し分ける）', async ({ page }) => {
     await gotoApp(page);
     await waitForList(page);
 
@@ -50,11 +50,15 @@ test.describe('全タブ網羅', () => {
       await expect(page.locator('#list .card[data-video-id]')).toHaveCount(expectedItemCount(c.id));
     }
 
-    // 24h 以外は総合のみ（ORDER §2-3 の割当の都合）。カテゴリは総合へ戻る。
-    await page.locator('#axis-periods .chip[data-period="month"]').click();
-    await expect(page).toHaveURL(/\/video\/month\/all\/published$/);
-    for (const c of CATEGORIES.filter(x => !x.periods.includes('month'))) {
-      await expect(page.locator(`#axis-categories .chip[data-category="${c.id}"]`)).toBeHidden();
+    // 2026-08-25 の発注者改訂でカテゴリは全期間に拡張された。config.js の periods が唯一の正。
+    for (const period of ['month', 'all']) {
+      await page.locator(`#axis-periods .chip[data-period="${period}"]`).click();
+      await expect(page).toHaveURL(new RegExp(`/video/${period}/`));
+      for (const c of CATEGORIES) {
+        const chip = page.locator(`#axis-categories .chip[data-category="${c.id}"]`);
+        if (c.periods.includes(period)) await expect(chip).toBeVisible();
+        else await expect(chip).toBeHidden();
+      }
     }
     await expect(page.locator('#axis-categories .chip[data-category="all"]')).toBeVisible();
   });

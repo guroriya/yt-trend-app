@@ -41,6 +41,7 @@ const state = {
   index: null,
   offline: !navigator.onLine,
   reqId: 0,
+  q: '',                     // ランキング内検索の語。ハッシュには載せない（端末内で完結）
 };
 
 /* ------------------------------------------------------------------- i18n */
@@ -69,6 +70,7 @@ function t(key, params) {
 function applyStatic() {
   $$('[data-i18n]').forEach(n => { n.textContent = t(n.dataset.i18n); });
   $$('[data-i18n-aria]').forEach(n => { n.setAttribute('aria-label', t(n.dataset.i18nAria)); });
+  $$('[data-i18n-placeholder]').forEach(n => { n.placeholder = t(n.dataset.i18nPlaceholder); });
   document.title = `${t('app.name')} — ${t('app.tagline')}`;
   $('#lang-code').textContent = (LANGUAGES.find(l => l.id !== state.lang) || LANGUAGES[0]).id.toUpperCase();
 }
@@ -251,6 +253,168 @@ const Learn = {
   isEmpty() { const s = this.snapshot(); return !s.terms.length && !s.channels.length; },
 };
 
+/* ------------------------------------------ ランキング内検索（発注者改訂 2026-08-25）
+ * YouTube 全体の検索はしない（API キーをブラウザに置けないため）。
+ * ここでやるのは「いま表示しているランキングの中を絞る」ことと、
+ * 「同じ語＋同じ期間で YouTube 本体の検索へ送り出す」ことの2つ。
+ */
+const YT_PERIOD_SP = {   // YouTube 検索の期間フィルタ（sp パラメータ）
+  '24h':   'EgIIAg%253D%253D',
+  week:    'EgIIAw%253D%253D',
+  month:   'EgIIBA%253D%253D',
+  year:    'EgIIBQ%253D%253D',
+  all:     '',
+};
+
+function normalizeQ(s) {
+  // 大小・全半角の差で取りこぼさない。NFKC で全角英数と半角を揃える。
+  return (s || '').normalize('NFKC').toLowerCase().trim();
+}
+
+function matchesQuery(item, q) {
+  if (!q) return true;
+  const hay = normalizeQ(`${item.title} ${item.channelTitle} ${(item.tags || []).join(' ')}`);
+  // 空白区切りの AND（「ゲーム 実況」で両方含むものだけ）
+  return q.split(/\s+/).filter(Boolean).every(term => hay.includes(term));
+}
+
+function youtubeSearchUrl(q, period) {
+  const sp = YT_PERIOD_SP[period] ?? '';
+  return `https://www.youtube.com/results?search_query=${encodeURIComponent(q)}${sp ? `&sp=${sp}` : ''}`;
+}
+
+function syncSearchChrome() {
+  const q = state.q;
+  const clear = $('#q-clear');
+  const yt = $('#q-yt');
+  clear.hidden = !q;
+  yt.hidden = !q;
+  if (q) {
+    yt.href = youtubeSearchUrl(q, state.period);
+    yt.textContent = state.period === 'all'
+      ? t('search.onYouTubeAll')
+      : t('search.onYouTube', { period: t(`period.${state.period}`) });
+  }
+}
+
+/* ------------------------------------- よく見るランキング（発注者改訂 2026-08-25）
+ * 端末内だけの記録。外部送信はしない（ORDER §2-11 と同じ約束）。
+ *   counts … 軸の組み合わせごとの訪問回数（自動チップの材料）
+ *   pins   … 手動で☆を付けた組み合わせ（常に先頭に出る）
+ */
+const FAV_KEY = 'ytta.freq.v1';
+const FAV_SHOW = 3;             // 自動チップの本数（憲章「一覧性」を圧迫しない範囲）
+const FAV_MIN_VISITS = 3;       // これ未満は「よく見る」と呼ばない
+
+const Favs = {
+  load() {
+    const d = LS.get(FAV_KEY, null);
+    if (!d || typeof d !== 'object') return { v: 1, counts: {}, pins: [] };
+    return { v: 1, counts: d.counts && typeof d.counts === 'object' ? d.counts : {},
+      pins: Array.isArray(d.pins) ? d.pins.filter(k => typeof k === 'string') : [] };
+  },
+  save(d) { LS.set(FAV_KEY, d); },
+  /** 軸の組み合わせを1つの文字列で表す（ハッシュと同じ並び。復元も容易）。 */
+  keyOf(s = state) { return `${s.country}/${s.section}/${s.period}/${s.category}`; },
+  parse(key) {
+    const [country, section, period, category] = key.split('/');
+    if (!COUNTRIES.some(c => c.code === country)) return null;
+    if (!SECTIONS.some(x => x.id === section)) return null;
+    if (!PERIODS.some(p => p.id === period)) return null;
+    const cat = CATEGORIES.find(c => c.id === category);
+    if (!cat || !cat.periods.includes(period)) return null;
+    return { country, section, period, category };
+  },
+  label(key) {
+    const p = this.parse(key);
+    if (!p) return key;
+    const flag = COUNTRIES.find(c => c.code === p.country)?.flag || '';
+    const parts = [t(`period.${p.period}`), t(`section.${p.section}`)];
+    if (p.category !== 'all') parts.push(t(`category.${p.category}`));
+    return `${flag} ${parts.join(' · ')}`.trim();
+  },
+  record() {
+    if (state.mode !== 'everyone') return;
+    const d = this.load();
+    const k = this.keyOf();
+    d.counts[k] = (d.counts[k] || 0) + 1;
+    // 際限なく増やさない（軸の総数を超える分は少ない順に捨てる）
+    const keys = Object.keys(d.counts);
+    if (keys.length > 60) {
+      keys.sort((a, b) => d.counts[a] - d.counts[b]).slice(0, keys.length - 60)
+        .forEach(x => { delete d.counts[x]; });
+    }
+    this.save(d);
+  },
+  isPinned(key = this.keyOf()) { return this.load().pins.includes(key); },
+  togglePin(key = this.keyOf()) {
+    const d = this.load();
+    const i = d.pins.indexOf(key);
+    if (i >= 0) d.pins.splice(i, 1); else d.pins.unshift(key);
+    d.pins = d.pins.slice(0, 8);
+    this.save(d);
+    return i < 0;
+  },
+  forget(key) {
+    const d = this.load();
+    d.pins = d.pins.filter(k => k !== key);
+    delete d.counts[key];
+    this.save(d);
+  },
+  /** 表示するチップ: ピン（手動）→ 訪問回数上位（自動）。いまいる場所は出さない。 */
+  chips() {
+    const d = this.load();
+    const here = this.keyOf();
+    const pins = d.pins.filter(k => this.parse(k));
+    const often = Object.entries(d.counts)
+      .filter(([k, n]) => n >= FAV_MIN_VISITS && !pins.includes(k) && this.parse(k))
+      .sort((a, b) => b[1] - a[1])
+      .slice(0, FAV_SHOW)
+      .map(([k]) => k);
+    return [...pins.map(k => ({ key: k, pinned: true })), ...often.map(k => ({ key: k, pinned: false }))]
+      .filter(c => c.key !== here);
+  },
+};
+
+function renderFavs() {
+  const box = $('#favs');
+  const chips = Favs.chips();
+  const pinnedHere = Favs.isPinned();
+  box.replaceChildren();
+
+  // ☆は検索バーの中（常設・1行に畳んでファーストビューを削らない）
+  const slot = $('#favstar-slot');
+  slot.replaceChildren();
+  const star = el('button', pinnedHere ? 'favstar is-on' : 'favstar', pinnedHere ? '★' : '☆');
+  star.type = 'button';
+  star.title = t(pinnedHere ? 'fav.unpin' : 'fav.pin');
+  star.setAttribute('aria-label', star.title);
+  star.setAttribute('aria-pressed', String(pinnedHere));
+  star.addEventListener('click', () => {
+    const on = Favs.togglePin();
+    toast(t(on ? 'fav.pinned' : 'fav.unpin'));
+    renderFavs();
+  });
+  slot.append(star);
+
+  chips.forEach(({ key, pinned }) => {
+    const wrap = el('span', pinned ? 'favchip is-pinned' : 'favchip');
+    const b = el('button', 'favchip-go', Favs.label(key));
+    b.type = 'button';
+    b.title = pinned ? t('fav.pinned') : t('fav.often');
+    b.addEventListener('click', () => { const p = Favs.parse(key); if (p) go(p); });
+    const x = el('button', 'favchip-x', '✕');
+    x.type = 'button';
+    x.title = t('fav.remove', { name: Favs.label(key) });
+    x.setAttribute('aria-label', x.title);
+    x.addEventListener('click', () => { Favs.forget(key); renderFavs(); });
+    wrap.append(b, x);
+    box.append(wrap);
+  });
+  // チップが無いときは行ごと畳む（憲章「一覧性が正義」: 空の行に高さを使わない）
+  box.hidden = chips.length === 0;
+}
+
 /* ------------------------------------- v3 匿名タップ集計（ORDER §2-15） */
 /*
  * 「このアプリ経由で今日◯回飛んだ」独自指標。送るのは 国コード＋動画ID だけで、
@@ -420,6 +584,17 @@ function skeletonList(target, n = 8, { hero = false } = {}) {
 
 function stateNode(kind) {
   const box = el('div', 'state');
+  if (kind === 'noHits') {
+    // 検索で 0 件。ここから YouTube 本体へ抜けられる導線を必ず添える。
+    box.append(el('div', 'state-emoji', '🔍'));
+    box.append(el('p', 'state-title', t('search.none', { q: state.q })));
+    const a = el('a', 'btn btn-primary', state.period === 'all'
+      ? t('search.onYouTubeAll') : t('search.onYouTube', { period: t(`period.${state.period}`) }));
+    a.href = youtubeSearchUrl(state.q, state.period);
+    a.target = '_blank'; a.rel = 'noopener noreferrer';
+    box.append(a);
+    const li0 = el('li'); li0.append(box); return li0;
+  }
   box.append(el('div', 'state-emoji', kind === 'error' ? '⚠️' : '🗒️'));
   box.append(el('p', 'state-title', t(kind === 'error' ? 'state.error.title' : 'state.empty.title')));
   box.append(el('p', 'state-body', t(kind === 'error' ? 'state.error.body' : 'state.empty.body')));
@@ -509,6 +684,7 @@ function growthAvailable(period = state.period) {
 }
 
 function syncAxes() {
+  syncSearchChrome();   // 期間が変われば「YouTubeで検索」の期間表示も変わる
   $$('#axis-periods .chip').forEach(b => {
     const on = b.dataset.period === state.period;
     b.classList.toggle('is-active', on); b.setAttribute('aria-selected', String(on));
@@ -547,9 +723,15 @@ function syncAxes() {
 }
 
 /* --------------------------------------------------------------- statusbar */
-function renderStatus(data) {
+function renderStatus(data, search = null) {
   const bar = $('#statusbar');
   bar.replaceChildren();
+  if (search?.q) {
+    // 検索中は「何件中何件か」を最優先で出す（データの鮮度表示より知りたい情報）
+    bar.append(el('span', 'badge badge-mock', '🔍'),
+      el('span', null, t('search.hits', { n: search.shown, total: search.total })));
+    return;
+  }
   if (state.index?.source === 'mock') {
     bar.append(el('span', 'badge badge-mock', 'SAMPLE'), el('span', null, t('settings.dataSource.mock')));
     return;
@@ -579,8 +761,13 @@ async function renderEveryone() {
     return;
   }
   if (my !== state.reqId) return;
-  paintRanking(list, data.items, { hero: true });
-  renderStatus(data);
+  const q = normalizeQ(state.q);
+  const shown = q ? data.items.filter(it => matchesQuery(it, q)) : data.items;
+  // 絞り込み中は 1 位のヒーロー扱いをやめる（「検索結果の1件目」は1位ではない）
+  paintRanking(list, shown, { hero: !q });
+  if (q && !shown.length) list.replaceChildren(stateNode('noHits'));
+  renderStatus(data, { q, shown: shown.length, total: data.items.length });
+  syncSearchChrome();
 }
 
 function paintRanking(list, items, { hero = false, why = false, delta = true } = {}) {
@@ -718,34 +905,217 @@ function renderInspector() {
   box.append(acts);
 }
 
-/* -------------------------------------------------------------- tags view */
-async function renderTags() {
-  const list = $('#tag-list');
-  const my = ++state.reqId;
-  list.replaceChildren();
-  const data = await getJSON(`data/tags-${state.country}.json`, { soft: true });
-  if (my !== state.reqId) return;
-  if (!data || !data.items?.length) {
-    const li = el('li'); const box = el('div', 'state');
-    box.append(el('p', 'state-title', t('tags.empty')));
-    li.append(box); list.append(li); return;
+/* ------------------------------------------------------------- search view
+ * 2026-08-25 発注者改訂: 「ワード」タブを「検索」タブに置き換えた。
+ * ここで検索するのは *このアプリが集めたランキング全体*（国 × 部門 × 期間 × カテゴリ）。
+ * YouTube 全体の検索は API キーをブラウザに置けないので本家へ転送する（ORDER §8 の転送導線）。
+ * 旧ワードランキング（ORDER §2-12）は「話題のワード」チップとして検索の入口に残している。
+ */
+const find = {
+  q: '',
+  period: 'any',
+  section: 'any',
+  built: false,
+};
+
+/** 検索対象のデータセット一覧。多すぎると重いので「総合」を全期間×全部門ぶん見る。 */
+function findTargets() {
+  const out = [];
+  for (const s of SECTIONS) {
+    if (find.section !== 'any' && find.section !== s.id) continue;
+    for (const p of PERIODS) {
+      if (find.period !== 'any' && find.period !== p.id) continue;
+      out.push({ section: s.id, period: p.id, path: datasetPath(state.country, s.id, p.id, 'all') });
+      // 期間か部門を絞っているときは、その範囲のカテゴリ別も混ぜて取りこぼしを減らす
+      if (find.period !== 'any' || find.section !== 'any') {
+        CATEGORIES.filter(c => c.id !== 'all' && c.periods.includes(p.id)).forEach(c => {
+          out.push({ section: s.id, period: p.id, path: datasetPath(state.country, s.id, p.id, c.id) });
+        });
+      }
+    }
   }
-  const max = data.items[0].score || 1;
-  data.items.forEach(it => {
-    const li = el('li', 'tagrow');
-    li.append(el('span', 'tagrank', String(it.rank)));
-    li.append(el('span', 'tagterm', it.term));
-    if (it.delta != null) li.append(deltaNode({ prevRank: it.rank + it.delta, rank: it.rank, delta: it.delta }));
-    const bar = el('span', 'tagbar'); const fill = el('span');
-    fill.style.width = `${clamp((it.score / max) * 100, 6, 100)}%`;
-    bar.append(fill); li.append(bar);
-    li.append(el('span', 'tagcount', t('tags.count', { n: it.count })));
-    list.append(li);
+  return out;
+}
+
+function buildFindAxes() {
+  const pa = $('#find-periods');
+  pa.replaceChildren();
+  [{ id: 'any', label: t('find.any') }, ...PERIODS.map(p => ({ id: p.id, label: t(`period.${p.id}`) }))]
+    .forEach(o => {
+      const b = el('button', 'chip', o.label);
+      b.type = 'button'; b.role = 'tab'; b.dataset.period = o.id;
+      b.addEventListener('click', () => { find.period = o.id; syncFindAxes(); renderFind(); });
+      pa.append(b);
+    });
+  const sa = $('#find-sections');
+  sa.replaceChildren();
+  [{ id: 'any', label: t('find.any') }, ...SECTIONS.map(s => ({ id: s.id, label: t(`section.${s.id}`) }))]
+    .forEach(o => {
+      const b = el('button', null, o.label);
+      b.type = 'button'; b.role = 'tab'; b.dataset.section = o.id;
+      b.addEventListener('click', () => { find.section = o.id; syncFindAxes(); renderFind(); });
+      sa.append(b);
+    });
+  find.built = true;
+}
+
+function syncFindAxes() {
+  $$('#find-periods .chip').forEach(b => {
+    const on = b.dataset.period === find.period;
+    b.classList.toggle('is-active', on); b.setAttribute('aria-selected', String(on));
   });
+  $$('#find-sections button').forEach(b => {
+    const on = b.dataset.section === find.section;
+    b.classList.toggle('is-active', on); b.setAttribute('aria-selected', String(on));
+  });
+}
+
+/** 話題のワード（旧ワードランキング）。タップで検索語になる。 */
+async function renderFindWords() {
+  const box = $('#find-words');
+  box.replaceChildren();
+  if (find.q) return;                       // 検索中は結果に集中させる
+  const data = await getJSON(`data/tags-${state.country}.json`, { soft: true });
+  if (!data?.items?.length) return;
+  box.append(el('h2', 'find-words-h', t('tags.title')));
+  const row = el('div', 'find-words-row');
+  data.items.slice(0, 12).forEach(it => {
+    const b = el('button', 'chip', it.term);
+    b.type = 'button';
+    b.addEventListener('click', () => {
+      $('#fq').value = it.term;
+      find.q = it.term;
+      renderFind();
+      $('#fq').focus();
+    });
+    row.append(b);
+  });
+  box.append(row);
+}
+
+function findStatus(text, icon = '🔍') {
+  const bar = $('#find-status');
+  bar.replaceChildren();
+  if (!text) return;
+  bar.append(el('span', 'badge badge-mock', icon), el('span', null, text));
+}
+
+async function renderFind() {
+  if (!find.built) buildFindAxes();
+  syncFindAxes();
+  const list = $('#find-list');
+  const my = ++state.reqId;
+  $('#fq-clear').hidden = !find.q;
+
+  const q = normalizeQ(find.q);
+  if (!q) {
+    list.replaceChildren();
+    const li = el('li'); const box = el('div', 'state');
+    box.append(el('div', 'state-emoji', '🔎'));
+    box.append(el('p', 'state-title', t('find.empty.title')));
+    box.append(el('p', 'state-body', t('find.empty.body')));
+    li.append(box); list.append(li);
+    endLoading(list);
+    findStatus('');
+    await renderFindWords();
+    return;
+  }
+
+  findStatus(t('find.loading'));
+  skeletonList(list, 6);
+  const targets = findTargets();
+  const datasets = await Promise.all(targets.map(tg => getJSON(tg.path, { soft: true })));
+  if (my !== state.reqId) return;
+
+  // 同じ動画が複数のランキングに出るので、いちばん順位の高い1件にまとめる
+  const best = new Map();
+  datasets.forEach((d, i) => {
+    if (!d?.items) return;
+    const tg = targets[i];
+    d.items.forEach(it => {
+      if (!matchesQuery(it, q)) return;
+      const prev = best.get(it.videoId);
+      if (!prev || it.rank < prev.__origRank) {
+        best.set(it.videoId, { ...it, __where: tg, __origRank: it.rank });
+      }
+    });
+  });
+  const hits = [...best.values()].sort((a, b) => b.viewCount - a.viewCount);
+  $('#find-words').replaceChildren();
+
+  if (!hits.length) {
+    const li = el('li'); const box = el('div', 'state');
+    box.append(el('div', 'state-emoji', '🔍'));
+    box.append(el('p', 'state-title', t('find.none.title')));
+    box.append(el('p', 'state-body', t('find.none.body', { q: find.q })));
+    const a = el('a', 'btn btn-primary', t('search.onYouTubeAll'));
+    a.href = youtubeSearchUrl(find.q, find.period === 'any' ? 'all' : find.period);
+    a.target = '_blank'; a.rel = 'noopener noreferrer';
+    box.append(a);
+    li.append(box);
+    list.replaceChildren(li);
+    endLoading(list);
+    findStatus(t('find.hits', { n: 0 }));
+    return;
+  }
+
+  const shown = hits.slice(0, 100).map((it, i) => ({ ...it, rank: i + 1, prevRank: null, delta: null }));
+  paintRanking(list, shown, { hero: false, why: false, delta: false });
+  // 「どのランキングの何位で見つかったか」を各行に添える（検索結果の意味づけ）
+  $$('#find-list .card[data-video-id]', document).forEach(li => {
+    const item = li.__item;
+    const w = item?.__where;
+    if (!w) return;
+    const info = $('.info', li);
+    if (!info) return;
+    info.append(el('span', 'why', t('find.where', {
+      period: t(`period.${w.period}`), section: t(`section.${w.section}`), rank: item.__origRank ?? '',
+    })));
+  });
+  endLoading(list);
+
+  const bar = $('#find-status');
+  bar.replaceChildren();
+  bar.append(el('span', 'badge badge-mock', '🔍'), el('span', null, t('find.hits', { n: hits.length })));
+  const a = el('a', 'btn btn-ghost btn-sm q-yt', find.period === 'any' || find.period === 'all'
+    ? t('search.onYouTubeAll')
+    : t('search.onYouTube', { period: t(`period.${find.period}`) }));
+  a.href = youtubeSearchUrl(find.q, find.period === 'any' ? 'all' : find.period);
+  a.target = '_blank'; a.rel = 'noopener noreferrer';
+  bar.append(a);
 }
 
 /* --------------------------------------------------------------- map view */
 function project(lat, lon) { return { x: (lon + 180) / 360 * 100, y: (90 - lat) / 180 * 100 }; }
+
+/* 世界の陸地（正距円筒図法・viewBox 0 0 360 180、x=経度+180 / y=90-緯度）。
+ * 外部 CDN を使えないので、輪郭を大づかみに手で置いた埋め込みパス。
+ * 目的は「どこが陸か」を一目で示すことで、測量的な正確さではない（BACKLOG に実測版の案）。 */
+const LAND_PATHS = [
+  // ユーラシア（本体）
+  'M170 32 L196 26 L232 22 L268 26 L300 34 L316 44 L330 44 L336 52 L322 58 L306 56 L292 62 L280 58 L268 66 L256 62 L246 72 L236 66 L226 74 L214 68 L206 76 L196 70 L188 78 L180 70 L172 62 L164 66 L156 58 L162 48 L156 42 L166 38 Z',
+  // ヨーロッパ西部の張り出し
+  'M162 40 L176 36 L184 42 L180 52 L172 56 L164 52 Z',
+  // インド亜大陸
+  'M246 72 L254 70 L258 82 L250 92 L244 84 Z',
+  // 東南アジア・島嶼
+  'M276 84 L292 82 L300 88 L288 96 L276 92 Z',
+  'M300 92 L312 90 L318 96 L306 100 Z',
+  // アフリカ
+  'M164 66 L186 62 L200 70 L204 84 L196 100 L186 118 L176 128 L168 118 L162 100 L158 84 Z',
+  // 北アメリカ
+  'M36 26 L74 20 L104 26 L118 38 L112 50 L100 56 L92 68 L84 78 L76 72 L70 60 L58 54 L46 44 L34 38 Z',
+  // 中央アメリカ
+  'M84 78 L96 76 L104 86 L96 92 L88 86 Z',
+  // 南アメリカ
+  'M100 96 L118 92 L126 104 L124 122 L116 140 L106 152 L98 142 L96 124 L92 108 Z',
+  // オーストラリア
+  'M300 118 L326 114 L336 124 L330 138 L312 142 L300 132 Z',
+  // ニュージーランド
+  'M344 136 L352 132 L354 142 L346 146 Z',
+  // グリーンランド
+  'M112 14 L136 10 L146 20 L138 32 L120 30 L110 22 Z',
+];
 
 async function renderMap() {
   const wrap = $('#map-wrap');
@@ -757,12 +1127,22 @@ async function renderMap() {
   svg.setAttribute('preserveAspectRatio', 'none');
   svg.setAttribute('aria-hidden', 'true');
   const ns = 'http://www.w3.org/2000/svg';
+  // 陸地を先に敷き、その上に経緯線を薄く重ねる（地形が主役・格子は補助）
+  const land = document.createElementNS(ns, 'g');
+  land.setAttribute('class', 'map-land');
+  LAND_PATHS.forEach(d => {
+    const p = document.createElementNS(ns, 'path');
+    p.setAttribute('d', d);
+    land.append(p);
+  });
+  svg.append(land);
+
   const line = (x1, y1, x2, y2, strong) => {
     const l = document.createElementNS(ns, 'line');
     l.setAttribute('x1', x1); l.setAttribute('y1', y1); l.setAttribute('x2', x2); l.setAttribute('y2', y2);
     l.setAttribute('stroke', 'currentColor');
-    l.setAttribute('stroke-width', strong ? 1 : 0.5);
-    l.setAttribute('opacity', strong ? 0.5 : 0.25);
+    l.setAttribute('stroke-width', strong ? 0.7 : 0.35);
+    l.setAttribute('opacity', strong ? 0.35 : 0.16);
     svg.append(l);
   };
   for (let lon = -180; lon <= 180; lon += 30) line(lon + 180, 0, lon + 180, 180, lon === 0);
@@ -869,13 +1249,13 @@ async function renderCurrentView() {
   // どのビューで何が起きても、スケルトンのまま固まらないようにする。
   // （タブ切替のハンドラは go() を await しないので、投げっぱなしだと誰も拾えない）
   try {
-    if (state.mode === 'everyone') { syncAxes(); await renderEveryone(); }
+    if (state.mode === 'everyone') { syncAxes(); renderFavs(); Favs.record(); await renderEveryone(); }
     else if (state.mode === 'my')  { await renderMy(); }
-    else if (state.mode === 'tags'){ await renderTags(); }
+    else if (state.mode === 'tags'){ await renderFind(); }
     else if (state.mode === 'map') { await renderMap(); }
   } catch (err) {
     console.error('render failed', err);
-    const list = { my: '#my-list', tags: '#tag-list' }[state.mode];
+    const list = { my: '#my-list', tags: '#find-list' }[state.mode];
     if (list) { const n = $(list); n.replaceChildren(stateNode('error')); endLoading(n); }
     else if (state.mode === 'map') $('#map-wrap').replaceChildren(stateNode('error').firstChild);
   }
@@ -1099,6 +1479,31 @@ function bindChrome() {
     $('#my-inspect').textContent = t(box.hidden ? 'my.inspector.open' : 'my.inspector.close');
     if (!box.hidden) renderInspector();
   });
+  // 検索: 入力のたびに描き直す（データは取得済みなので即時。API は呼ばない）
+  let qTimer = 0;
+  $('#q').addEventListener('input', e => {
+    state.q = e.target.value;
+    clearTimeout(qTimer);
+    qTimer = setTimeout(() => { syncSearchChrome(); renderEveryone(); }, 120);
+  });
+  $('#q').addEventListener('keydown', e => {
+    if (e.key === 'Escape' && state.q) { e.stopPropagation(); $('#q-clear').click(); }
+  });
+  $('#q-clear').addEventListener('click', () => {
+    state.q = ''; $('#q').value = ''; syncSearchChrome(); renderEveryone(); $('#q').focus();
+  });
+
+  // 検索タブ（旧ワードタブ）: 集めたランキング全体を横断して探す
+  let fqTimer = 0;
+  $('#fq').addEventListener('input', e => {
+    find.q = e.target.value;
+    clearTimeout(fqTimer);
+    fqTimer = setTimeout(() => renderFind(), 160);
+  });
+  $('#fq-clear').addEventListener('click', () => {
+    find.q = ''; $('#fq').value = ''; renderFind(); $('#fq').focus();
+  });
+
   bindSwipe($('#list-wrap'));
   window.addEventListener('online',  () => { state.offline = false; renderCurrentView(); });
   window.addEventListener('offline', () => { state.offline = true;  renderCurrentView(); });

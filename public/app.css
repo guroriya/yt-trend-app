@@ -26,6 +26,8 @@
   --down:      #5a6070;
   --down-soft: #eef0f4;
   --new-soft:  #fff2ee;
+  --land:      #dfe3ea;   /* 地図の陸。海（--bg-sunk）との差が分かる最小限 */
+  --land-edge: #c3cad6;
   --skel:      #e7e9ef;
   --skel-hi:   #f3f4f8;
   --shadow:    0 1px 2px rgba(16,20,28,.06), 0 6px 18px rgba(16,20,28,.06);
@@ -62,6 +64,8 @@
   --down:      #8b94a4;
   --down-soft: #1d222c;
   --new-soft:  #3a1a12;
+  --land:      #242b37;
+  --land-edge: #39414f;
   --skel:      #1c2129;
   --skel-hi:   #262c37;
   --shadow:    0 1px 2px rgba(0,0,0,.5), 0 6px 18px rgba(0,0,0,.4);
@@ -440,12 +444,54 @@ ol, ul { list-style: none; margin: 0; padding: 0; }
 .tagcount { flex: none; font-size: 11px; color: var(--text-3); min-width: 58px; text-align: right;
   white-space: nowrap; font-variant-numeric: tabular-nums; }   /* EN の "12 videos" が入る幅 */
 
+/* ---------- よく見る＋検索（発注者改訂 2026-08-25） ---------- */
+.favs { display: flex; align-items: center; gap: 6px; padding: 0 10px 8px;
+  overflow-x: auto; scrollbar-width: none; }
+.favs::-webkit-scrollbar { display: none; }
+.favstar { flex: none; min-width: var(--tap); min-height: var(--tap); border: 0; background: none;
+  font-size: 18px; line-height: 1; color: var(--text-3); cursor: pointer; border-radius: var(--r-sm); }
+.favstar.is-on { color: var(--gold); }
+.favstar:hover { background: var(--bg-elev); }
+.favchip { flex: none; display: inline-flex; align-items: center;
+  border: 1px solid var(--line-strong); border-radius: var(--r-pill); background: var(--bg); }
+.favchip.is-pinned { border-color: var(--gold); }
+.favchip-go { min-height: var(--tap); padding: 0 4px 0 12px; border: 0; background: none; cursor: pointer;
+  font-size: 12.5px; font-weight: 700; color: var(--text-2); white-space: nowrap; }
+.favchip:hover .favchip-go { color: var(--text); }
+.favchip-x { min-width: 32px; min-height: var(--tap); padding: 0 8px 0 4px; border: 0; background: none;
+  cursor: pointer; font-size: 11px; color: var(--text-3); }
+.favchip-x:hover { color: var(--accent); }
+
+.searchbar { display: flex; align-items: center; gap: 6px; padding: 7px 10px; }
+.search-ico { flex: none; width: 18px; height: 18px; color: var(--text-3); }
+.search-ico svg { width: 100%; height: 100%; fill: currentColor; }
+.searchbar input[type="search"] {
+  flex: 1 1 auto; min-width: 0; min-height: var(--tap); padding: 0 10px;
+  border: 1px solid var(--line-strong); border-radius: var(--r-pill);
+  background: var(--bg); color: var(--text); font-size: 14px; font-family: inherit;
+}
+.searchbar input::placeholder { color: var(--text-3); }
+.searchbar input:focus-visible { border-color: var(--accent); }
+.q-clear { flex: none; min-width: var(--tap); min-height: var(--tap); border: 0; background: none;
+  color: var(--text-3); font-size: 13px; cursor: pointer; border-radius: var(--r-sm); }
+.q-clear:hover { color: var(--text); background: var(--bg-elev); }
+.q-yt { flex: none; white-space: nowrap; text-decoration: none; }
+
+/* ---------- 検索タブ（2026-08-25 発注者改訂: ワードタブを置き換え） ---------- */
+.find-axes { border-bottom: 1px solid var(--line); }
+.find-filters { gap: 8px; }
+.find-words { padding: 4px 10px 20px; }
+.find-words-h { font-size: 12.5px; font-weight: 800; color: var(--text-2); margin: 4px 4px 8px;
+  letter-spacing: .01em; }
+.find-words-row { display: flex; flex-wrap: wrap; gap: 6px; }
+
 /* ---------- map ---------- */
 .map-wrap { padding: 6px 10px 16px; }
 .mapbox { position: relative; width: 100%; aspect-ratio: 2 / 1; border-radius: var(--r); overflow: hidden;
   background: var(--bg-sunk); border: 1px solid var(--line); }
 .mapbox svg { position: absolute; inset: 0; width: 100%; height: 100%; }
 .map-land { fill: var(--line); }
+.map-land path { fill: var(--land); stroke: var(--land-edge); stroke-width: .4; vector-effect: non-scaling-stroke; }
 .map-pin { position: absolute; transform: translate(-50%, -50%); width: 30px; height: 30px; border-radius: 50%;
   border: 2px solid var(--bg); background: var(--skel); cursor: pointer; padding: 0;
   box-shadow: var(--shadow); }

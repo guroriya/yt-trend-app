@@ -48,7 +48,9 @@ test.describe('P0 スモーク', () => {
     await page.locator('.mode[data-mode="tags"]').click();
     await expect(page).toHaveURL(new RegExp(`#/tags/${COUNTRIES[0].code}$`));
     await expect(page.locator('#view-tags')).toBeVisible();
-    await expect(page.locator('#tag-list .tagrow').first()).toBeVisible();
+    // 2026-08-25 発注者改訂: ワードタブ → 検索タブ。空のときは案内と話題のワードが出る
+    await expect(page.locator('#find-list .state-title')).toBeVisible();
+    await expect(page.locator('#find-words .chip').first()).toBeVisible();
 
     await page.locator('.mode[data-mode="map"]').click();
     await expect(page).toHaveURL(/#\/map$/);
