@@ -34,8 +34,14 @@ gh auth login
 
 ### 補足: いますぐローカルで画面を見るには（Node 不要）
 
-`public/data/` は git に入れていません（取得した API データを履歴に残さないため / ORDER §8）。
-一度だけ次を実行してからブラウザで開いてください。
+**リポジトリ直下の `start-app.cmd` をダブルクリックしてください。** それだけで開きます。
+（サンプルデータの生成 → サーバー起動 → ブラウザを開く、まで自動。閉じるときは黒い画面を閉じる）
+
+`public/index.html` を直接ダブルクリックしても**動きません**。このアプリは JSON を読み込む作りなので、
+`file://` ではブラウザがブロックします。必ず `start-app.cmd` から開いてください。
+
+`public/data/` を git に入れていないのは、取得した API データを履歴に残さないためです（ORDER §8）。
+手で回したいときは次のとおり:
 
 ```
 cd C:\Users\Owner\yt-trend-app ; python tools/mock.py ; python -m http.server 4173 --directory public

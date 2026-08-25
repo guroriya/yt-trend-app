@@ -11,7 +11,10 @@
 読む順番は `docs/ORDER.md`（正本）→ このファイル → 迷ったら `DECISIONS.md` を検索。
 作業ルールは `CLAUDE.md`。**人間ゲート（ORDER §7）以外では発注者に質問しない。**
 
-画面を見る（Node 不要・`public/data` は生成物なので先に作る）:
+画面を見る（Node 不要）: **`start-app.cmd` をダブルクリック**。
+データ生成 → サーバー起動 → ブラウザを開くまで自動（`tools/open_app.py`）。
+`public/index.html` の直接ダブルクリックでは動かない（`file://` では fetch とモジュール読込がブロックされる）。
+手で回すなら:
 
 ```
 cd C:\Users\Owner\yt-trend-app ; python tools/mock.py ; python -m http.server 4173 --directory public
