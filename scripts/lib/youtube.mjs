@@ -75,7 +75,10 @@ export class YouTube {
         lastErr = new ApiError(`${res.status} ${reason || message} on ${safeUrl}`, res.status);
         continue;                       // リトライ対象
       }
-      throw new ApiError(`${res.status} ${reason || message} on ${safeUrl}`, res.status);
+      // reason だけだと「badRequest」しか残らず原因が特定できない（実例: 発行直後の
+      // API キーが有効化前で全呼び出しが 400 になった）。message も必ず併記する。
+      // Google のエラーメッセージにキーの値そのものは含まれない。
+      throw new ApiError(`${res.status} ${reason}${message && message !== reason ? `: ${message}` : ''} on ${safeUrl}`, res.status);
     }
     throw lastErr ?? new ApiError(`failed after retries on ${safeUrl}`, 0);
   }

@@ -55,7 +55,7 @@ cd C:\Users\Owner\yt-trend-app ; python tools/mock.py ; python -m http.server 41
 
 ---
 
-## ゲートA（未着手 / 所要 30分）— YouTube Data API v3 のキー発行  ★P1 で必要
+## ゲートA（済 2026-08-25）— YouTube Data API v3 のキー発行（`YT_API_KEY` を Secrets に登録済み・キーは API 制限つき）
 
 > 手順1〜6（キーの発行）はいつでもできますが、**手順7の貼り付け先はゲートE で作る
 > GitHub リポジトリ**なので、先にゲートE を済ませておくとスムーズです。無料・カード不要です。
