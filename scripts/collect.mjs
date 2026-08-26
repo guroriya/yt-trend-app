@@ -73,9 +73,13 @@ const shortsCache = (await readJSON(SHORTS_FILE, {})) || {};
 const lastRunFile = (await readJSON(LASTRUN_FILE, {})) || {};
 /* lastRun は「ジョブを最後に完走した時刻」。cursor は「途中で予算切れしたジョブの再開位置」。
    1回の費用が1日の予算を超えるジョブ（例: カテゴリ×週月＝8,080 units）は、
-   カーソルが無いと毎回先頭からやり直して末尾に永久に到達しない（2026-08-25 レビュー指摘）。 */
+   カーソルが無いと毎回先頭からやり直して末尾に永久に到達しない（2026-08-25 レビュー指摘）。
+   lap は「その周回で残っているリスト数と、書き損ねの有無」。カーソルだけだと再開時に
+   また1周まるごと歩こうとするため、「1回では歩き切れない予算しか無い日」が続くと
+   同じリストに割当を二重に払い続けて永久に完走しない（2026-08-26 シミュレーションで実測）。 */
 const lastRun = lastRunFile.lastRun || lastRunFile;   // 旧形式（フラットな {jobId: ISO}）も読める
 const cursor = lastRunFile.cursor || {};
+const lap = lastRunFile.lap || {};                    // 旧形式には無い（無ければ新しい周回として扱う）
 
 const HARD_STOP = Math.floor(QUOTA.dailyUnits * 0.95);
 const spentAtStart = budget.spent;
@@ -86,14 +90,24 @@ const onSpend = (units, endpoint) => {
   budget.byJob[currentJob] = (budget.byJob[currentJob] || 0) + units;
   budget.byEndpoint[endpoint] = (budget.byEndpoint[endpoint] || 0) + units;
 };
-const canSpend = units => budget.spent + units <= HARD_STOP;
+/* デイリー枠の取り置き: 毎日ジョブ（everyHours ≤ 24）が今日のクォータ日にまだ完走していない間、
+   その費用ぶんは他のジョブに使わせない。実行順の並べ替え（デイリー枠優先）は1回の実行の中でしか
+   効かないので、top24h の期限が日の途中に来る日は、先に走った未消化の山が残額を使い切ると
+   その日の 24h 更新が飛ぶ（2026-08-26 の事故の変種）。取り置きがあれば、いつ期限が来ても
+   デイリー枠のぶんだけは必ず残っている。実行中のジョブ自身は取り置きから除く。 */
+const ranToday = id => !!lastRun[id] && quotaDate(new Date(lastRun[id]), QUOTA.resetTimeZone) === today;
+const dailyReserve = () => plan.jobs
+  .filter(j => !j.skipped && j.everyHours <= 24 && j.costPerRun > 0
+    && j.id !== currentJob && !ranToday(j.id))
+  .reduce((sum, j) => sum + j.costPerRun, 0);
+const canSpend = units => budget.spent + units <= HARD_STOP - dailyReserve();
 
 /** 消費した割当は取り返せない。落ちても巻き戻らないよう、こまめに書き出す。 */
 async function persistState() {
   try {
     await writeJSON(BUDGET_FILE, budget, { pretty: true });
     await writeJSON(SHORTS_FILE, shortsCache);
-    await writeJSON(LASTRUN_FILE, { lastRun, cursor }, { pretty: true });
+    await writeJSON(LASTRUN_FILE, { lastRun, cursor, lap }, { pretty: true });
     if (BACKFILL.enabled || backfillState.startedAt) {
       await writeJSON(BACKFILL_FILE, backfillState, { pretty: true });
     }
@@ -119,9 +133,14 @@ const dueJobs = plan.jobs.filter(j => {
   return isDue(j, lastRun[j.id], now);
 });
 
-/* 実行順は priority 固定ではなく「待たされた度合い」で決める（エイジング）。
-   固定順だと、重いジョブ（カテゴリ×週月＝8,080 units）が毎日の残り予算を食い尽くし、
-   その下にいる年間・全期間が永久に順番を得られない（60日シミュレーションで実測）。
+/* 実行順は2段構え:
+   ① デイリー枠（planner が「毎日」と約束したジョブ＝everyHours ≤ 24。top24h と map）を先頭に。
+      2026-08-26 実測: 第3弾でカテゴリ系ジョブが一斉に新設された翌日、未実行ジョブ（overdue=∞）が
+      約37,000 units ぶん先頭に並び、毎日更新のはずの top24h が予算切れで丸1日飛んだ。
+      デイリー枠は合計 2,484 units と安いので、先に走らせても他の回復を妨げない。
+   ② 残りは priority 固定ではなく「待たされた度合い」で決める（エイジング）。
+      固定順だと、重いジョブ（カテゴリ×週月＝8,080 units）が毎日の残り予算を食い尽くし、
+      その下にいる年間・全期間が永久に順番を得られない（60日シミュレーションで実測）。
    overdue = 経過時間 / 予定間隔。1.0 なら定刻、4.0 なら4周期ぶん待たされている。 */
 const overdueOf = j => {
   const last = lastRun[j.id];
@@ -129,7 +148,9 @@ const overdueOf = j => {
   const elapsedH = (now.getTime() - new Date(last).getTime()) / 3600e3;
   return elapsedH / Math.max(1, j.everyHours);
 };
-dueJobs.sort((a, b) => (overdueOf(b) - overdueOf(a)) || (a.priority - b.priority));
+const dailyTierOf = j => (j.everyHours <= 24 ? 0 : 1);  // 予算不足で planner が間隔を広げた日は自然に枠から外れる
+dueJobs.sort((a, b) => (dailyTierOf(a) - dailyTierOf(b))
+  || (overdueOf(b) - overdueOf(a)) || (a.priority - b.priority));
 
 /* バックフィルと poolrefresh は SCHEDULE のジョブではない（1回きり／自己制限つき）ので別枠で判定。 */
 const bfSpentToday = jobId => budget.byJob[jobId] || 0;
@@ -277,19 +298,46 @@ async function runListJob(jobId) {
   const lists = listsOfJob(jobId);
   // 前回この番号で力尽きた続きから始める。1周ぶんの本数を超えないよう常に丸める。
   const start = Math.min(Math.max(0, cursor[jobId] | 0), Math.max(0, lists.length - 1));
-  const order = [...lists.slice(start), ...lists.slice(0, start)];
-  log.step(`${jobId} — ${lists.length} list(s)${start ? ` (resuming at #${start + 1})` : ''}`);
-  let complete = true;      // 1周を最後まで歩き、かつ全部書けた
-  let walkedAll = true;     // 1周を最後まで歩いた（0件で飛ばしたぶんは含む）
+  /* 周回（ラップ）は実行をまたいで数える: 予算切れで止まった続きの実行では「残りのリスト」
+     だけを歩き、全リストを1回ずつ取り終えた時点で完走とする。毎回1周まるごと歩き直すと、
+     取り直しに割当を二重に払ううえ、「1回で歩き切れない予算しか無い日」が続くジョブは
+     永久に完走せず、他のジョブを追い越し続けて飢餓させる（2026-08-26 実測）。
+     リングの構成が変わったら（国の追加・入替等。署名 sig の不一致で検出）、
+     残数を引き継ぐと新しいリストを取らないまま完走扱いにしてしまうので、新しい周回にする。 */
+  const ringSig = (() => {
+    let h = 5381;
+    for (const l of lists) for (const ch of `${l.country}.${l.section}.${l.period}.${l.category};`) {
+      h = ((h * 33) ^ ch.charCodeAt(0)) | 0;
+    }
+    return h;
+  })();
+  const lapValid = lap[jobId]?.sig === ringSig
+    && Number.isInteger(lap[jobId]?.left) && lap[jobId].left >= 1 && lap[jobId].left <= lists.length;
+  const lapLeft = lapValid ? lap[jobId].left : lists.length;
+  const lapDirty = lapValid && lap[jobId].dirty === true;
+  // 書き損ねで閉じた周回の連続回数。閉じた周回の取り直し（下の dirtyLaps 判定）に使う。
+  const prevDirtyLaps = lap[jobId]?.dirtyLaps | 0;
+  const order = [...lists.slice(start), ...lists.slice(0, start)].slice(0, lapLeft);
+  log.step(`${jobId} — ${lists.length} list(s)`
+    + `${start ? ` (resuming at #${start + 1}, ${lapLeft} left in this lap)` : ''}`);
+  let complete = !lapDirty; // この周回を最後まで歩き、かつ（前の実行ぶんも含めて）全部書けた
+  let walkedAll = true;     // この周回の残りを最後まで歩いた（0件で飛ばしたぶんは含む）
   let done = 0;
-  const parkAt = i => { cursor[jobId] = (start + i) % lists.length; };
+  const parkAt = i => {
+    cursor[jobId] = (start + i) % lists.length;
+    lap[jobId] = {
+      left: lapLeft - i, sig: ringSig,
+      ...(complete ? {} : { dirty: true }),
+      ...(prevDirtyLaps ? { dirtyLaps: prevDirtyLaps } : {}),
+    };
+  };
   try {
   for (const desc of order) {
     if (!canSpend(QUOTA.costSearch)) {
       // 次回はここから。予算を使い切っても必ず前へ進む。
       parkAt(done);
-      log.warn(`hard stop reached — stopping this job (resume at #${cursor[jobId] + 1}/${lists.length})`);
-      complete = false;
+      log.warn(`hard stop reached — stopping this job `
+        + `(resume at #${cursor[jobId] + 1}/${lists.length}, ${lapLeft - done} left)`);
       walkedAll = false;
       break;
     }
@@ -330,13 +378,30 @@ async function runListJob(jobId) {
     }
   }
   } catch (err) {
-    // 割当ガードが途中で止めた場合。そのリストは書けていないので、次回はそこから retry する。
+    // 割当ガードが途中で止めた場合。そのリストは書けていないので、次回はそこから retry する
+    // （取り直すので「書き損ね」には数えない）。
     if (err instanceof QuotaExceededError) { parkAt(done - 1); walkedAll = false; }
     throw err;
   }
-  // 1周ぶん歩けたらカーソルを畳む（0件で飛ばした行があっても、位置としては先頭に戻ってよい）
-  if (walkedAll) delete cursor[jobId];
-  return complete;
+  if (!walkedAll) return false;                 // 予算切れで停止。lap に残数を残してある
+  // 周回を閉じたのでカーソルとラップを畳む（0件で飛ばした行があっても、位置としては先頭に戻ってよい）
+  delete cursor[jobId];
+  delete lap[jobId];
+  if (complete) return true;
+  /* 書き損ね（0件・激減の据え置き・単発エラー）で閉じた周回は、次の実行で新しい周回として
+     1度だけ取り直す。無制限に取り直すと、慢性的に書けないリストが1本あるだけで永久に完走せず、
+     毎時の実行がリング1周ぶんの割当を払い続けて他のジョブを飢餓させる（2026-08-26 レビューで
+     実測: top24h なら1日で 2,424×4周 ≈ 9,700 units ＞ ハード停止）。2周続けて駄目なら慢性と
+     みなし、lastRun を進めて次の間隔まで諦める（据え置いた前回のデータが出続けるだけで、
+     壊れはしない）。 */
+  const dirtyLaps = prevDirtyLaps + 1;
+  if (dirtyLaps < 2) {
+    lap[jobId] = { dirtyLaps };
+    return false;
+  }
+  log.warn(`${jobId}: ${dirtyLaps} lap(s) in a row closed with kept-previous lists — `
+    + 'giving up until the next interval');
+  return true;
 }
 
 async function runMapJob() {

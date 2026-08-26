@@ -380,38 +380,63 @@ test.describe('schema.mjs — データ契約', () => {
 test.describe('収集スケジュールの飢餓耐性', () => {
   const HARD_STOP = Math.floor(QUOTA.dailyUnits * 0.95);
 
-  /** 60日ぶんの実行をなぞって「一度でも取れたデータセット」を返す。 */
-  function simulate({ aging, cursorResume, days = 60, reservedUnits = 0 }) {
+  /** 60日ぶんの実行をなぞって「一度でも取れたデータセット」と「ジョブが完走した日」を返す。
+   *  top24hLastRunHour: top24h の初期 lastRun（負の時刻で「期限が日の途中に来る」状態を作る）。
+   *  flakyJob: そのジョブの周回が毎回「書き損ねで閉じる」状態（0件・激減の据え置き）を再現。
+   *  giveUp=false: 「2周続けて書き損ねたら諦める」上限を外した比較用（collect.mjs には無い状態）。 */
+  function simulate({ aging, cursorResume, days = 60, reservedUnits = 0, top24hLastRunHour, flakyJob, giveUp = true }) {
     const plan = planSchedule({ dailyUnits: QUOTA.dailyUnits, reservedUnits });
     const jobs = plan.jobs.filter(j => !j.skipped && j.costPerRun > 0 && j.id !== 'map');
-    const cursor = {}, lastRun = {}, written = new Set(), spentByDay = {};
+    const cursor = {}, lapLeft = {}, dirtyLaps = {}, lastRun = {}, written = new Set(), spentByDay = {};
+    const jobDays = Object.fromEntries(jobs.map(j => [j.id, new Set()]));
+    if (top24hLastRunHour !== undefined) lastRun.top24h = top24hLastRunHour;
     const overdue = (j, hour) => (lastRun[j.id] === undefined
       ? Infinity : (hour - lastRun[j.id]) / Math.max(1, j.everyHours));
+    // collect.mjs と同じ2段構え: デイリー枠（everyHours ≤ 24）を先頭に、残りはエイジング順
+    const dailyTier = j => (j.everyHours <= 24 ? 0 : 1);
+    // collect.mjs と同じ取り置き: デイリー枠がその日まだ完走していない間、その費用は他に使わせない
+    const capFor = (j, day) => HARD_STOP - jobs
+      .filter(d => dailyTier(d) === 0 && d.id !== j.id
+        && !(lastRun[d.id] !== undefined && Math.floor(lastRun[d.id] / 24) === day))
+      .reduce((sum, d) => sum + d.costPerRun, 0);
 
     for (let hour = 0; hour < days * 24; hour++) {
       const day = Math.floor(hour / 24);
       // 予約枠（バックフィル）は実消費としても毎日先に取られるものとして扱う
       spentByDay[day] = spentByDay[day] || reservedUnits;
       const due = jobs.filter(j => lastRun[j.id] === undefined || (hour - lastRun[j.id]) >= j.everyHours);
-      if (aging) due.sort((a, b) => (overdue(b, hour) - overdue(a, hour)) || (a.priority - b.priority));
+      if (aging) due.sort((a, b) => (dailyTier(a) - dailyTier(b))
+        || (overdue(b, hour) - overdue(a, hour)) || (a.priority - b.priority));
       else due.sort((a, b) => a.priority - b.priority);
 
       for (const j of due) {
         const lists = listsOfJob(j.id);
         const start = cursorResume ? (cursor[j.id] || 0) : 0;
+        // collect.mjs と同じ周回（ラップ）: 前回の続きの実行では残りのリストだけを歩き、
+        // 全リストを1回ずつ取り終えたら（複数回の実行にまたがってよい）完走とする。
+        const left = cursorResume ? (lapLeft[j.id] ?? lists.length) : lists.length;
+        const cap = capFor(j, day);
         let walked = true;
-        for (let i = 0; i < lists.length; i++) {
+        for (let i = 0; i < left; i++) {
           const idx = (start + i) % lists.length;
           const cost = costOfList(lists[idx].size);
-          if (spentByDay[day] + cost > HARD_STOP) { cursor[j.id] = idx; walked = false; break; }
+          if (spentByDay[day] + cost > cap) { cursor[j.id] = idx; lapLeft[j.id] = left - i; walked = false; break; }
           spentByDay[day] += cost;
           const l = lists[idx];
           written.add(`${l.country}-${l.section}-${l.period}-${l.category}`);
         }
-        if (walked) { delete cursor[j.id]; lastRun[j.id] = hour; }
+        if (!walked) continue;
+        delete cursor[j.id];
+        delete lapLeft[j.id];
+        // collect.mjs と同じ「書き損ねで閉じた周回は1度だけ取り直し、2周続いたら次の間隔まで諦める」
+        if (j.id === flakyJob && !giveUp) continue;
+        if (j.id === flakyJob && (dirtyLaps[j.id] = (dirtyLaps[j.id] || 0) + 1) < 2) continue;
+        delete dirtyLaps[j.id];
+        lastRun[j.id] = hour;
+        jobDays[j.id].add(day);
       }
     }
-    return written;
+    return { written, jobDays };
   }
 
   const allLists = () => new Set(
@@ -421,16 +446,59 @@ test.describe('収集スケジュールの飢餓耐性', () => {
 
   test('カーソル＋エイジングがあれば 60日で全データセットが1度は取れる', () => {
     const all = allLists();
-    const got = simulate({ aging: true, cursorResume: true });
+    const got = simulate({ aging: true, cursorResume: true }).written;
     const missing = [...all].filter(k => !got.has(k));
     expect(missing, `取れなかった: ${missing.slice(0, 5).join(', ')}`).toHaveLength(0);
   });
 
   test('バックフィル予約（1,440/日）が走っている間も、60日で全データセットが取れる（飢餓なし）', () => {
     const all = allLists();
-    const got = simulate({ aging: true, cursorResume: true, reservedUnits: 1440 });
+    const got = simulate({ aging: true, cursorResume: true, reservedUnits: 1440 }).written;
     const missing = [...all].filter(k => !got.has(k));
     expect(missing, `取れなかった: ${missing.slice(0, 5).join(', ')}`).toHaveLength(0);
+  });
+
+  /* 2026-08-26 の実測再現: 第3弾の公開翌日、未実行のカテゴリ系ジョブ（overdue=∞・計約37,000 units）が
+     エイジング順で top24h より先に並び、毎日更新のはずの 24hランキングが丸1日飛んだ。
+     シミュレーションの初期状態（全ジョブ lastRun 未設定）はまさにこのコールドスタートなので、
+     「初日から毎日 top24h が完走する」ことをデイリー枠（実行順の①）が保証しているかを見張る。 */
+  test('デイリー枠: コールドスタートの初回ラッシュ中でも top24h は毎日完走する', () => {
+    const { jobDays } = simulate({ aging: true, cursorResume: true });
+    const missedDays = [];
+    for (let d = 0; d < 60; d++) if (!jobDays.top24h.has(d)) missedDays.push(d);
+    expect(missedDays, `top24h が飛んだ日: ${missedDays.slice(0, 5).join(', ')}`).toHaveLength(0);
+  });
+
+  test('デイリー枠: バックフィル予約（1,440/日）と併走しても top24h は毎日完走する', () => {
+    const { jobDays } = simulate({ aging: true, cursorResume: true, reservedUnits: 1440 });
+    const missedDays = [];
+    for (let d = 0; d < 60; d++) if (!jobDays.top24h.has(d)) missedDays.push(d);
+    expect(missedDays, `top24h が飛んだ日: ${missedDays.slice(0, 5).join(', ')}`).toHaveLength(0);
+  });
+
+  /* 実行順の並べ替えは「1回の実行の中」でしか効かない。top24h の期限が日の途中に来る日、
+     先に走った未消化の山が残額を使い切ると、その日の 24h 更新が丸ごと飛ぶ（2026-08-26 の
+     事故の変種）。canSpend のデイリー枠取り置きがこれを防いでいることを見張る。 */
+  test('取り置き: top24h の期限が日の途中（10時）に来ても、未消化の山があっても毎日完走する', () => {
+    const { jobDays } = simulate({ aging: true, cursorResume: true, top24hLastRunHour: 10 - 24 });
+    const missedDays = [];
+    for (let d = 0; d < 60; d++) if (!jobDays.top24h.has(d)) missedDays.push(d);
+    expect(missedDays, `top24h が飛んだ日: ${missedDays.slice(0, 5).join(', ')}`).toHaveLength(0);
+  });
+
+  /* 慢性的に書けないリスト（0件・激減の据え置き）が1本あるジョブは lastRun が進まず、
+     毎時の実行がリング1周ぶんの割当を払い続けて他のジョブの更新を細らせる。
+     「書き損ね周回は1度だけ取り直し、2周続いたら次の間隔まで諦める」上限がこれを抑える。 */
+  test('諦め上限: 慢性的に書けないジョブがいても、全データセットが取れ、後続の更新頻度も落ちない', () => {
+    const all = allLists();
+    const withCap = simulate({ aging: true, cursorResume: true, flakyJob: 'top24h' });
+    const noCap = simulate({ aging: true, cursorResume: true, flakyJob: 'top24h', giveUp: false });
+    const missing = [...all].filter(k => !withCap.written.has(k));
+    expect(missing, `取れなかった: ${missing.slice(0, 5).join(', ')}`).toHaveLength(0);
+    // 上限が無いと lastRun は一度も進まず（毎時の取り直し地獄）、後続 weekmonth の完走回数も減る
+    expect(noCap.jobDays.top24h.size).toBe(0);
+    expect(withCap.jobDays.top24h.size).toBeGreaterThan(0);
+    expect(withCap.jobDays.weekmonth.size).toBeGreaterThanOrEqual(noCap.jobDays.weekmonth.size);
   });
 
   /* かつてここに「カーソルかエイジングが欠けると飢餓が再現する」裏取りテストがあった。
@@ -439,15 +507,16 @@ test.describe('収集スケジュールの飢餓耐性', () => {
      再現テストは成立しなくなった。カーソル＋エイジング自体は「日をまたぐ再開を速くする」
      効果が残っているので、対策あり構成が対策なしを下回らないことだけを見張る。 */
   test('カーソル＋エイジングは、無い場合と比べて取得範囲を狭めない（非退行）', () => {
-    const withBoth = simulate({ aging: true, cursorResume: true });
-    const noCursor = simulate({ aging: true, cursorResume: false });
-    const noAging = simulate({ aging: false, cursorResume: true });
+    const withBoth = simulate({ aging: true, cursorResume: true }).written;
+    const noCursor = simulate({ aging: true, cursorResume: false }).written;
+    const noAging = simulate({ aging: false, cursorResume: true }).written;
     expect(withBoth.size).toBeGreaterThanOrEqual(noCursor.size);
     expect(withBoth.size).toBeGreaterThanOrEqual(noAging.size);
   });
 
-  test('不変条件: どのジョブも1回の費用が1日のハード停止を超えない（超えると1周を完走できず飢餓する）', () => {
+  test('不変条件: どのジョブも1回の費用が1日のハード停止を超えない（超えると1周が複数日にまたがり鮮度が落ちる）', () => {
     // 6カ国化のとき catweekmonth（12,120 units）がこれを破って年間・全期間を飢餓させた。
+    // 2026-08-26 の周回（lap）導入で「飢餓」はしなくなったが、鮮度の約束としては守り続ける。
     // 国を増やすときは必ずこのテストで守られる（8カ国でも catweek=8,080 < 9,500 で収まる）。
     const plan = planSchedule({ dailyUnits: QUOTA.dailyUnits });
     for (const j of plan.jobs) {

@@ -20,7 +20,7 @@ public/data/map.json                        … 世界地図タブ（各国1位�
 public/data/tags-{country}.json             … タグ／頻出ワードの勢い
 state/_budget.json                          … API 消費カウンタ（内部用・公開しない）
 state/_shorts_cache.json                    … ショート判定キャッシュ（内部用・30日TTL）
-state/last-run.json                         … ジョブごとの最終実行時刻（planner が使う）
+state/last-run.json                         … {lastRun: ジョブごとの最終完走時刻, cursor: 予算切れジョブの再開位置, lap: 周回の残数/署名/書き損ね回数}。lap が無い旧形式は新しい周回として読む
 state/prev/{datasetId}.json                 … 前回の順位（↑↓NEW の比較元。videoId と rank のみ）
 state/snapshots/{YYYY-MM-DD}.json.gz        … 日次スナップショット（31日で自動削除）
 state/backfill.json                         … 遡り収集の進み具合（国ごとの窓カーソルと完了フラグ）
