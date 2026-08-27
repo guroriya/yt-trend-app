@@ -57,6 +57,10 @@ cd C:\Users\Owner\yt-trend-app ; python tools/mock.py ; python -m http.server 41
 
 ## 3. 未解決
 
+- **GitHub Actions の schedule（毎時 cron）が 2026-08-27 に約15時間発火しなかった**（workflow は
+  active・コードと設定は正常・GitHub 側の間引き）。止まって見えたら
+  `gh workflow run collect` で手動実行すればよい（workflow_dispatch 対応済み。planner が全部判断する）。
+
 - ローカルに Node/npm/gh が無く、**収集スクリプトと Playwright は一度も実走していない**
   （純粋ロジックの `plan.mjs` / `pure.mjs` / `tags.mjs` / `schema.mjs` / `workers/taps/src/lib.mjs` は
   ブラウザで実行して検証済み）。
