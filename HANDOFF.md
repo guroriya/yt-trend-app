@@ -1,6 +1,6 @@
 # HANDOFF.md — 引き継ぎ
 
-最終更新: 2026-08-26（7回目・収集の飢餓対策） / 公開URL: **https://guroriya.github.io/yt-trend-app/**
+最終更新: 2026-08-30（8回目・バックフィル有効化） / 公開URL: **https://guroriya.github.io/yt-trend-app/**
 
 ## 0. 再開のしかた（新しいセッションはここから）
 
@@ -25,7 +25,7 @@ cd C:\Users\Owner\yt-trend-app ; python tools/mock.py ; python -m http.server 41
 - **発注者改訂 第3弾（2026-08-25）を実装済み・E2E 250件緑**:
   ①24hランキングは**毎日1回**に固定（desiredHours キャップ） ②**6カ国**（IN/BR追加。増枠後に FR/DE で8カ国）
   ③**世界地図60カ国＋各国トップ10**ミニリスト ④**全期間バックフィル**（2005年〜の年窓→候補プール→0units再構成。
-  `BACKFILL.enabled` は**まだ false**） ⑤**グループランキング**（workers/taps 拡張・`GROUPS.endpoint` 空の間は無効）
+  **2026-08-30 に `enabled: true` で有効化**） ⑤**グループランキング**（workers/taps 拡張・`GROUPS.endpoint` 空の間は無効）
   ⑥増枠申請の準備一式（`terms.html` 新設・SUBMISSIONS §5・NEEDS_HUMAN ゲートF改訂）。
 - **重要な発見**: 6カ国化で旧 catweekmonth/catyearall が「1回12,120units > ハード停止9,500」となり
   1周を完走できず飢餓する構造だった → 期間単位の catweek/catmonth/catyear/catall に分割し、
@@ -42,15 +42,18 @@ cd C:\Users\Owner\yt-trend-app ; python tools/mock.py ; python -m http.server 41
   期限が日の途中に来る日の再発防止）④**書き損ね周回の取り直しは1回まで**（2周連続なら次の間隔
   まで諦める。慢性0件リストによる毎時の取り直し地獄の防止）。再発防止テスト4件を追加し、
   シミュレーションは collect.mjs と同じ並び順・周回・取り置き・諦め上限を再現する（DECISIONS 参照）。
+- **2026-08-30 バックフィルを有効化**: IN/BR の初回取得が 08-26 に完了し以後毎日更新されていることを
+  本番 `data/index.json` で確認してから `BACKFILL.enabled: true` を push（次の一手 2 を消化）。
+  次の毎時 run から予約 1,400/日で遡り収集が始まり、約15日で完走 → 予約は自動で 0 に戻る。
+  進捗は `index.json` の `features.backfill` と UI の「全期間ランキングを拡充中」で見える。
 - ゲート0・A・E 完了。P5（Workers）はタップ＋グループともコード完成・デプロイはゲートB。
 
 ## 2. 次の一手
 
 1. **人間ゲート: ゲートF（増枠申請・20,000）を早めに**（審査数週間。文面は SUBMISSIONS §5 コピペ）。
    任意でゲートB（デプロイ1回でタップ集計と**グループタブ**が両方有効化）。
-2. IN/BR の初回データが埋まる（2〜4日）のを待って、`config.js` の **`BACKFILL.enabled: true`** に変えて push
-   （予約1,400/日で遡り収集が始まり、約15日で完走。進捗は index.json の `features.backfill` と UI の
-   「全期間ランキングを拡充中」で見える）。
+2. ~~IN/BR の初回データが埋まるのを待って `BACKFILL.enabled: true` にして push~~（**2026-08-30 済**）。
+   以後は進捗を index.json の `features.backfill` で時々見るだけでよい（完走で予約は自動 0）。
 3. 増枠が通ったら: `QUOTA.dailyUnits: 20000` ＋ `COUNTRIES` に FR/DE 追記（SEARCH_Q は準備済み）→
    BUDGET.md とテストの数値更新。FR/DE の窓はバックフィルが自動で歩き直す。
 4. 実データが貯まったら `python tools/overlap.py` で GB/US の重複率を測って BACKLOG を裁定。

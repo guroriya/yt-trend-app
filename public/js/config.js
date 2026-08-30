@@ -170,7 +170,7 @@ export const SCHEDULE = {
  * 全窓を歩き終えた国は自動で完了し、全国完了で予約枠も自動で 0 になる。
  */
 export const BACKFILL = {
-  enabled: false,            // 新しく足した国（IN/BR）の初回取得が済んだら true にする
+  enabled: true,             // 2026-08-30 有効化（IN/BR の初回取得は 08-26 に完了・本番 index.json で確認）
   dailyUnits: 1400,          // planner がソフト上限から差し引く1日あたりの予約枠
   videoStartYear: 2005,      // 動画部門の窓の開始年（YouTube 創設）
   shortsStartYear: 2020,     // ショート部門の窓の開始年（Shorts の開始）
