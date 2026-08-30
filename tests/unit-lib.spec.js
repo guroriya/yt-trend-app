@@ -441,19 +441,23 @@ test.describe('chart.mjs — 公式急上昇の合流', () => {
     expect(touched).toBe(1);                                // s1 の再生数が更新された
   });
 
-  test('窓の外に出た既存行は落とす。日付が読めない既存行は落とさない（取りこぼしで痩せさせない）', () => {
+  /* 剪定は search の完全更新（prune:true）でだけ。毎時の chart で剪定すると、次の完走まで
+     リストが痩せ続ける（実測: JP 24h が 84 → 45 件）。発注者の関心は「漏れ」なので細らせない。 */
+  test('prune:true のとき窓の外に出た既存行を落とす。日付が読めない既存行は落とさない', () => {
     const windowStart = '2026-08-29T16:00:00.000Z';
-    const { items, dropped } = mergeIntoList(
-      [
-        vid('aged', 9_000_000, '2026-08-20T00:00:00Z'),    // 窓の外に出た → 落とす
-        vid('keep', 100, '2026-08-30T00:00:00Z'),
-        vid('unknown', 50, null),                          // 日付が読めない → 残す
-      ],
-      [],
-      { windowStart, size: 100 },
-    );
-    expect(dropped).toBe(1);
-    expect(items.map(i => i.videoId).sort()).toEqual(['keep', 'unknown']);
+    const existing = [
+      vid('aged', 9_000_000, '2026-08-20T00:00:00Z'),    // 窓の外に出た
+      vid('keep', 100, '2026-08-30T00:00:00Z'),
+      vid('unknown', 50, null),                          // 日付が読めない → 残す
+    ];
+    const pruned = mergeIntoList(existing, [], { windowStart, size: 100, prune: true });
+    expect(pruned.dropped).toBe(1);
+    expect(pruned.items.map(i => i.videoId).sort()).toEqual(['keep', 'unknown']);
+
+    // 既定（chart の毎時合流）は落とさない＝リストを痩せさせない
+    const kept = mergeIntoList(existing, [], { windowStart, size: 100 });
+    expect(kept.dropped).toBe(0);
+    expect(kept.items).toHaveLength(3);
   });
 
   test('isMultiWriterList: chart が書くのは 24h/週間/月間 × 総合だけ', () => {

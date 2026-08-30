@@ -15,7 +15,10 @@
  *
  * 合流の約束（schema.mjs validateRanking を破らない）:
  *   - fresh は「追加」と「統計の更新」だけ。既存の行を数の都合で消さない
- *   - **窓の外に出た行は落とす**（「その期間に投稿された動画の順位表」という定義に従う）。
+ *   - **窓の外に出た行を落とすのは `prune` を渡したときだけ**＝search の完全更新のときだけ。
+ *     毎時の chart で剪定すると、次の search 完走までリストがどんどん痩せる
+ *     （実測: JP 24h が 84 → 45 件。発注者の関心は「漏れ」なので細らせない）。
+ *     search 側で落とすので、行の古さは改修前と同じ範囲に収まる。
  *     入れるときは厳しく（日付が読めない fresh は入れない）、残すときは寛容に
  *     （日付が読めない既存行は落とさない＝取りこぼしで痩せさせない）
  *   - 同じ動画は fresh 側の数値で上書きする（fresh は「いま」＝必ず新しい）
@@ -26,20 +29,21 @@
  * @param {Array} existing 公開中のランキングの items（rank 付きでよい・そのまま持ち回る）
  * @param {Array} fresh    normalizeVideo 形の新しい動画（isShort は確定済み・部門で絞ってから渡す）
  * @param {object} o
- * @param {string|null} o.windowStart この時刻より古い投稿は入れない／残さない（null=全期間）
+ * @param {string|null} o.windowStart この時刻より古い投稿は入れない（null=全期間）
  * @param {number} o.size 上限件数（config の Math.min(cat.size, per.size) と揃える）
+ * @param {boolean} o.prune 既存行のうち窓の外に出たものを落とす（search の完全更新でだけ true）
  * @returns {{items: Array, added: number, touched: number, dropped: number}}
  *   added=新規に入った数 / touched=数値を更新した数 / dropped=窓の外に出て落とした既存行の数
  */
-export function mergeIntoList(existing, fresh, { windowStart = null, size = 100 } = {}) {
+export function mergeIntoList(existing, fresh, { windowStart = null, size = 100, prune = false } = {}) {
   const windowMs = windowStart == null ? null : Date.parse(windowStart);
 
-  // 既存行: 日付が読めて、かつ窓より古いと分かったものだけ落とす
+  // 既存行: prune のときだけ、日付が読めて窓より古いと分かったものを落とす
   const byId = new Map();
   let dropped = 0;
   for (const it of existing || []) {
     if (!it || !it.videoId) continue;
-    if (windowMs != null) {
+    if (prune && windowMs != null) {
       const pub = it.publishedAt == null ? NaN : Date.parse(it.publishedAt);
       if (!Number.isNaN(pub) && pub < windowMs) { dropped++; continue; }
     }

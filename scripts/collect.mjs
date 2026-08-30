@@ -360,7 +360,7 @@ async function runListJob(jobId) {
          完走のたびに消え、急上昇の寿命より窓が長い週間・月間では二度と戻らない
          （2026-08-30 レビューの確定指摘）。合流規則は chart 側と同じ1本を使う。 */
       const merged = isMultiWriterList(desc)
-        ? mergeIntoList(prev?.items, raw, { windowStart, size: desc.size })
+        ? mergeIntoList(prev?.items, raw, { windowStart, size: desc.size, prune: true })
         : { items: raw, dropped: 0 };
       const nextRaw = merged.items;
 
