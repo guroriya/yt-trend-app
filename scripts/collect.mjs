@@ -12,7 +12,7 @@
 
 import { join } from 'node:path';
 import {
-  BACKFILL, COUNTRIES, SECTIONS, PERIODS, MAP_COUNTRIES, QUOTA, RETENTION, SEARCH_Q, datasetId,
+  BACKFILL, CATEGORIES, COUNTRIES, SECTIONS, PERIODS, MAP_COUNTRIES, QUOTA, RETENTION, SEARCH_Q, datasetId,
 } from '../public/js/config.js';
 import {
   DATA_DIR, STATE_DIR, chunk, ensureDir, listDir, log, parseArgs, quotaDate, readJSON, writeJSON,
@@ -30,6 +30,7 @@ import {
   appendSnapshot, applyRanks, computeGrowthItems, growthFeature, loadPrevRanks,
   snapshotForDaysAgo, writeIndex, writeList, writeMap, writeTags,
 } from './lib/store.mjs';
+import { isMultiWriterList, mergeIntoList } from './lib/chart.mjs';
 import { rankTerms } from './lib/tags.mjs';
 import { runRetention } from './lib/retention.mjs';
 import {
@@ -350,19 +351,34 @@ async function runListJob(jobId) {
       // 0 件を書くと公開中のデータと prev（順位変動の比較元）まで消える。前回のものを残す。
       if (!raw.length) { log.warn(`${id}: 0 items — keeping the previous file`); complete = false; continue; }
       const { ranks, generatedAt: prevGeneratedAt } = await loadPrevRanks(id);
+      const windowStart = desc.days == null ? null : new Date(now.getTime() - desc.days * 864e5).toISOString();
+      const prev = await readJSON(join(DATA_DIR, `${id}.json`), null);
+      const prevCount = prev?.items?.length || 0;
+
+      /* 書き手が2つあるリスト（chart ジョブも書く 24h/週間/月間×総合）は素の上書きにしない。
+         上書きすると chart だけが知る動画（＝search の索引が返さないもの＝この改修の存在理由）が
+         完走のたびに消え、急上昇の寿命より窓が長い週間・月間では二度と戻らない
+         （2026-08-30 レビューの確定指摘）。合流規則は chart 側と同じ1本を使う。 */
+      const merged = isMultiWriterList(desc)
+        ? mergeIntoList(prev?.items, raw, { windowStart, size: desc.size })
+        : { items: raw, dropped: 0 };
+      const nextRaw = merged.items;
+
       // 前回より極端に痩せた結果で上書きしない（API の気まぐれで「3件の月間ランキング」を
       // 公開してしまうのを防ぐ）。半分未満に減った場合だけ見送る。
-      const prevCount = (await readJSON(join(DATA_DIR, `${id}.json`), null))?.items?.length || 0;
-      if (prevCount >= 20 && raw.length < prevCount / 2) {
-        log.warn(`${id}: ${raw.length} items vs ${prevCount} before — keeping the previous file`);
+      // 合流するリストでは「合流後の件数」で見る: search の収量だけで測ると、chart が足したぶん
+      // 基準（prevCount）が系統的に上振れして、薄いリストが恒久的に据え置かれ、
+      // そのたびに周回を取り直して割当を空費する（同レビューの確定指摘）。
+      if (prevCount >= 20 && nextRaw.length < prevCount / 2) {
+        log.warn(`${id}: ${nextRaw.length} items vs ${prevCount} before — keeping the previous file`);
         complete = false;
         continue;
       }
-      const items = applyRanks(raw, ranks);
+      const items = applyRanks(nextRaw, ranks);
       const res = await writeList({
         ...desc,
         items,
-        windowStart: desc.days == null ? null : new Date(now.getTime() - desc.days * 864e5).toISOString(),
+        windowStart,
         generatedAt: nowISO,
         prevGeneratedAt,
       });
@@ -401,6 +417,68 @@ async function runListJob(jobId) {
   }
   log.warn(`${jobId}: ${dirtyLaps} lap(s) in a row closed with kept-previous lists — `
     + 'giving up until the next interval');
+  return true;
+}
+
+/**
+ * 公式急上昇（chart=mostPopular・1 unit/国）を 24h/週間/月間ランキングへ合流させる（2026-08-30 改訂）。
+ * search が取りこぼす大物と、top24h が毎日1回になった古さを、ほぼ無料の側路で補う。
+ * 年間・全期間はここで直接触らず、freshByCountry → feedPools → rebuildFromPool の既存経路に乗せる。
+ * @returns {Promise<boolean>} 全カ国を回れたら true（途中で予算が尽きたら false＝次の毎時で続き）。
+ */
+async function runChartJob() {
+  currentJob = 'chart';
+  log.step(`chart — ${COUNTRIES.length} countries`);
+  const CHART_PERIODS = ['24h', 'week', 'month'];
+  const sizeAll = CATEGORIES.find(x => x.id === 'all')?.size ?? 100;
+  for (const c of COUNTRIES) {
+    if (!canSpend(QUOTA.costVideos)) {
+      log.warn('chart: hard stop reached — stopping this job');
+      return false;
+    }
+    try {
+      const top = await yt.mostPopular({ regionCode: c.code, maxResults: 50, costVideos: QUOTA.costVideos });
+      // ショート判定は search 経路と同じ道具・同じキャッシュ（部門の純度は schema が守る約束）
+      const candidates = top.filter(d => d.durationSec > 0 && d.durationSec <= SHORT_MAX_SEC);
+      const { decided } = await confirmShorts(candidates, shortsCache, { now: now.getTime() });
+      const fresh = top
+        .filter(d => d.viewCount != null)
+        .map(d => ({ ...d, isShort: decided.get(d.videoId) ?? false }));
+      for (const v of fresh) {
+        allSeen.set(v.videoId, v);
+        pools.get(c.code)?.set(v.videoId, v);
+        freshByCountry.get(c.code)?.set(v.videoId, v);
+      }
+      for (const s of SECTIONS) {
+        const subset = fresh.filter(d => (s.id === 'shorts' ? d.isShort : !d.isShort));
+        if (!subset.length) continue;
+        for (const pid of CHART_PERIODS) {
+          const per = PERIODS.find(p => p.id === pid);
+          const id = datasetId(c.code, s.id, pid, 'all');
+          // search がまだ一度も作っていないリストは作らない（chart 50本だけの薄いリストを公開しない）
+          const cur = await readJSON(join(DATA_DIR, `${id}.json`), null);
+          if (!cur?.items?.length) continue;
+          const windowStart = per.days == null ? null : new Date(now.getTime() - per.days * 864e5).toISOString();
+          const { items: rawMerged, added, touched, dropped } = mergeIntoList(cur.items, subset, {
+            windowStart,
+            size: Math.min(sizeAll, per.size ?? 100),
+          });
+          // 変化が無いのに書くと prev（↑↓の比較元）だけが無駄に進む
+          if (!added && !touched && !dropped) continue;
+          const { ranks, generatedAt: prevGeneratedAt } = await loadPrevRanks(id);
+          const items = applyRanks(rawMerged, ranks);
+          written.push(await writeList({
+            country: c.code, section: s.id, period: pid, category: 'all',
+            items, windowStart, generatedAt: nowISO, prevGeneratedAt,
+          }));
+          if (added) log.done(`${id}: +${added} from chart (${touched} refreshed)`);
+        }
+      }
+    } catch (err) {
+      if (err instanceof QuotaExceededError) throw err;
+      log.warn(`chart ${c.code}: ${err.message}`);
+    }
+  }
   return true;
 }
 
@@ -697,6 +775,7 @@ try {
   for (const job of dueJobs) {
     let complete = true;
     if (job.id === 'map') await runMapJob();
+    else if (job.id === 'chart') complete = await runChartJob();
     else if (job.id === 'tags') continue;                 // 最後にまとめて走らせる
     else complete = await runListJob(job.id);
     // 途中で打ち切ったジョブは lastRun を進めない。次の実行で残りを取りにいく。

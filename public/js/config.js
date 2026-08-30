@@ -146,6 +146,11 @@ export const SCHEDULE = {
     // だからカテゴリ×週間・月間とカテゴリ×年間・全期間は期間ごとの4ジョブに分割してある
     // （費用は同じ・1周が半分になる）。実行順は everyHours≤24 のデイリー枠（top24h/map）が最優先で、
     // その費用は完走まで取り置かれる（collect.mjs の dailyReserve。2026-08-26 の飢餓事故の再発防止）。
+    // 2026-08-30 改訂: 公式急上昇（videos.list chart=mostPopular・1 unit/国）を毎時取り、
+    // 24h/週間/月間へ「追加と再生数の更新」だけ合流させる（scripts/lib/chart.mjs）。
+    // search が取りこぼす大物（実測: 急上昇1位級 363万回の動画が 24h に不在）と、
+    // top24h が毎日1回になったことによる古さを、6 units/回（144 u/日）の側路で補う。
+    { id: 'chart',        everyHours: 1,   floorHours: 24,  priority: 0, desiredHours: 1 },
     { id: 'top24h',       everyHours: 24,  floorHours: 168, priority: 1, desiredHours: 24 },
     { id: 'weekmonth',    everyHours: 72,  floorHours: 336, priority: 2, desiredHours: 24 },
     { id: 'categories',   everyHours: 168, floorHours: 720, priority: 3, desiredHours: 24 },   // カテゴリ×24h

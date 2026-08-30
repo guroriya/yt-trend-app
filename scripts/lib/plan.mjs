@@ -67,6 +67,7 @@ export function listsOfJob(jobId) {
       break;
     }
     case 'map':
+    case 'chart':
     case 'tags':
       break;                       // リストは取らない（下の costOfJob で扱う）
     default:
@@ -78,6 +79,7 @@ export function listsOfJob(jobId) {
 /** ジョブ1回あたりの費用（units）。 */
 export function costOfJob(jobId) {
   if (jobId === 'map') return MAP_COUNTRIES.length * QUOTA.costVideos;   // chart=mostPopular は 1 unit
+  if (jobId === 'chart') return COUNTRIES.length * QUOTA.costVideos;     // 公式急上昇の合流（6カ国×1 unit）
   if (jobId === 'tags') return 0;                                        // 既存 JSON の再集計のみ
   return listsOfJob(jobId).reduce((sum, l) => sum + costOfList(l.size), 0);
 }

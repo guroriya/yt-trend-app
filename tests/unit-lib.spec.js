@@ -24,6 +24,7 @@ import { validateIndex, validateRanking, validateMap, validateTags } from '../sc
 import {
   backfillWindows, poolUpsert, poolEvict, poolStaleIds, poolPrune, poolApplyRefresh, rebuildRanking,
 } from '../scripts/lib/backfill.mjs';
+import { isMultiWriterList, mergeIntoList } from '../scripts/lib/chart.mjs';
 import { QUOTA, COUNTRIES, SECTIONS, CATEGORIES, BACKFILL } from '../public/js/config.js';
 import { PUBLIC_DIR, readJSON } from './helpers.js';
 
@@ -93,6 +94,7 @@ test.describe('plan.mjs — 割当セーフガード', () => {
     expect(costOfJob('catyear')).toBe(6060);          // カテゴリ×年間
     expect(costOfJob('catall')).toBe(6060);           // カテゴリ×全期間
     expect(costOfJob('map')).toBe(60);
+    expect(costOfJob('chart')).toBe(6);               // 公式急上昇の合流（6カ国×1 unit・2026-08-30）
     expect(costOfJob('tags')).toBe(0);
     // カテゴリのリストは5ジョブに漏れなく重複なく分かれること（期間で分割しているため）
     const catLists = ['categories', 'catweek', 'catmonth', 'catyear', 'catall'].flatMap(listsOfJob);
@@ -103,9 +105,11 @@ test.describe('plan.mjs — 割当セーフガード', () => {
       .toBe(expected);
   });
 
-  test('既定割当では 1日 7,823 units、ソフト上限 8,000 の下に収まる（2026-08-25 第3弾）', () => {
+  test('既定割当では 1日 7,967 units、ソフト上限 8,000 の下に収まる（2026-08-30 chart 合流を含む）', () => {
     const plan = planSchedule({ dailyUnits: 10000 });
-    expect(plan.total).toBe(7823);
+    expect(plan.total).toBe(7967);
+    // 公式急上昇の合流（chart）は毎時・144 u/日で常設（2026-08-30 改訂）
+    expect(plan.jobs.find(j => j.id === 'chart').everyHours).toBe(1);
     expect(plan.total).toBeLessThanOrEqual(plan.softLimit);
     // 発注者指示「24時間ランキングは当面毎日1回でよい」＝ desiredHours=24 のキャップ
     expect(plan.jobs.find(j => j.id === 'top24h').everyHours).toBe(24);
@@ -121,8 +125,10 @@ test.describe('plan.mjs — 割当セーフガード', () => {
   test('バックフィルの予約枠はソフト上限から差し引かれ、解除すると自動で速くなる', () => {
     // 予約中（遡り収集が走っている間）: 定常ジョブは現状維持で収まる
     const reserved = planSchedule({ dailyUnits: 10000, reservedUnits: 1440 });
-    expect(reserved.total).toBe(6397);
+    expect(reserved.total).toBe(6541);
     expect(reserved.total + 1440).toBeLessThanOrEqual(Math.floor(10000 * 0.8));
+    // chart（毎時・144 u/日）はバックフィル併走中でも落ちない
+    expect(reserved.jobs.find(j => j.id === 'chart').everyHours).toBe(1);
     expect(reserved.jobs.find(j => j.id === 'weekmonth').everyHours).toBe(72);
     expect(reserved.degraded).toBe(false);
     expect(reserved.jobs.some(j => j.skipped)).toBe(false);
@@ -137,10 +143,10 @@ test.describe('plan.mjs — 割当セーフガード', () => {
       const g = id => p.jobs.find(j => j.id === id).everyHours;
       return [g('top24h'), g('weekmonth'), g('categories'), p.total];
     };
-    expect(at(15000)).toEqual([24, 24, 48, 11978]);
+    expect(at(15000)).toEqual([24, 24, 48, 11937]);
     // ゲートFの申請額 20,000: 週間/月間もカテゴリ×24h も毎日に
-    expect(at(20000)).toEqual([24, 24, 24, 15874]);
-    expect(at(30000)).toEqual([24, 24, 24, 23809]);
+    expect(at(20000)).toEqual([24, 24, 24, 15833]);
+    expect(at(30000)).toEqual([24, 24, 24, 23953]);
     // 24h を再び高頻度にしたければ top24h の desiredHours を下げるだけ（コメント参照）
   });
 
@@ -369,6 +375,97 @@ test.describe('schema.mjs — データ契約', () => {
   });
 });
 
+/* ------------------------------------------------ 公式急上昇の合流（2026-08-30 改訂） */
+
+test.describe('chart.mjs — 公式急上昇の合流', () => {
+  const vid = (id, views, publishedAt = '2026-08-30T00:00:00Z', extra = {}) => ({
+    videoId: id, title: id, channelId: 'c', channelTitle: 'ch', publishedAt,
+    viewCount: views, likeCount: null, commentCount: null, durationSec: 300,
+    isShort: false, categoryId: null, tags: [], ...extra,
+  });
+
+  test('search が取りこぼした大物が入り、再生数の降順に並ぶ', () => {
+    const existing = [vid('a', 1_200_000), vid('b', 900_000)];
+    const { items, added, touched } = mergeIntoList(existing, [vid('big', 3_600_000)], { size: 100 });
+    expect(added).toBe(1);
+    expect(touched).toBe(0);
+    expect(items.map(i => i.videoId)).toEqual(['big', 'a', 'b']);
+  });
+
+  test('同じ動画は fresh 側の新しい再生数で更新される（行は消えない・重複しない）', () => {
+    const existing = [vid('a', 1_000_000), vid('b', 900_000)];
+    const { items, added, touched } = mergeIntoList(existing, [vid('b', 2_000_000)], { size: 100 });
+    expect(added).toBe(0);
+    expect(touched).toBe(1);
+    expect(items.map(i => i.videoId)).toEqual(['b', 'a']);
+    expect(items[0].viewCount).toBe(2_000_000);
+    expect(new Set(items.map(i => i.videoId)).size).toBe(items.length);
+  });
+
+  test('windowStart より古い投稿は入れない（24h リストに3日前の急上昇を混ぜない）', () => {
+    const windowStart = '2026-08-29T16:00:00.000Z';
+    const { items, added } = mergeIntoList(
+      [vid('a', 100, '2026-08-29T20:00:00Z')],
+      [
+        vid('old', 5_000_000, '2026-08-27T00:00:00Z'),   // 3日前 → week/month には入るがここでは弾く
+        vid('fresh', 3_000_000, '2026-08-30T01:00:00Z'),
+        vid('nodate', 4_000_000, null),                  // 日付が読めないものも弾く
+      ],
+      { windowStart, size: 100 },
+    );
+    expect(added).toBe(1);
+    expect(items.map(i => i.videoId)).toEqual(['fresh', 'a']);
+  });
+
+  test('上限 size で切る。viewCount 無しの fresh 行は無視・変化が無ければ added/touched とも 0', () => {
+    const existing = [vid('a', 300), vid('b', 200), vid('c', 100)];
+    const r1 = mergeIntoList(existing, [vid('d', 250)], { size: 3 });
+    expect(r1.items.map(i => i.videoId)).toEqual(['a', 'd', 'b']);   // c が上限で押し出される
+    const r2 = mergeIntoList(existing, [vid('x', null), vid('a', 300)], { size: 3 });
+    expect(r2.added).toBe(0);
+    expect(r2.touched).toBe(0);
+    expect(r2.dropped).toBe(0);
+  });
+
+  /* 2026-08-30 レビューの確定指摘: search 側が素の上書きだと、chart だけが知る動画が
+     top24h/weekmonth の完走のたびに消え、急上昇の寿命より窓が長い週間・月間では戻らない。
+     search も同じ合流規則を通すことで、この穴が塞がっていることを固定する。 */
+  test('search の完走が chart 由来の行を消さない（週間の大物が生き残る）', () => {
+    const windowStart = '2026-08-24T00:00:00.000Z';        // 週間の窓
+    const published = [vid('chartOnly', 3_600_000, '2026-08-27T00:00:00Z'), vid('s1', 900_000, '2026-08-28T00:00:00Z')];
+    // 次の weekmonth 完走。search は chartOnly を索引に持たないので返さない
+    const searchRaw = [vid('s1', 1_000_000, '2026-08-28T00:00:00Z'), vid('s2', 800_000, '2026-08-29T00:00:00Z')];
+    const { items, added, touched } = mergeIntoList(published, searchRaw, { windowStart, size: 100 });
+    expect(items.map(i => i.videoId)).toEqual(['chartOnly', 's1', 's2']);
+    expect(added).toBe(1);                                  // s2
+    expect(touched).toBe(1);                                // s1 の再生数が更新された
+  });
+
+  test('窓の外に出た既存行は落とす。日付が読めない既存行は落とさない（取りこぼしで痩せさせない）', () => {
+    const windowStart = '2026-08-29T16:00:00.000Z';
+    const { items, dropped } = mergeIntoList(
+      [
+        vid('aged', 9_000_000, '2026-08-20T00:00:00Z'),    // 窓の外に出た → 落とす
+        vid('keep', 100, '2026-08-30T00:00:00Z'),
+        vid('unknown', 50, null),                          // 日付が読めない → 残す
+      ],
+      [],
+      { windowStart, size: 100 },
+    );
+    expect(dropped).toBe(1);
+    expect(items.map(i => i.videoId).sort()).toEqual(['keep', 'unknown']);
+  });
+
+  test('isMultiWriterList: chart が書くのは 24h/週間/月間 × 総合だけ', () => {
+    expect(isMultiWriterList({ period: '24h', category: 'all' })).toBe(true);
+    expect(isMultiWriterList({ period: 'week', category: 'all' })).toBe(true);
+    expect(isMultiWriterList({ period: 'month', category: 'all' })).toBe(true);
+    expect(isMultiWriterList({ period: 'year', category: 'all' })).toBe(false);
+    expect(isMultiWriterList({ period: 'all', category: 'all' })).toBe(false);
+    expect(isMultiWriterList({ period: '24h', category: 'music' })).toBe(false);
+  });
+});
+
 /* ------------------------------------------------------ 収集の進み方（飢餓しないこと）
  * 2026-08-25 のレビューで、1回の費用が1日の予算を超えるジョブ（カテゴリ×週月＝8,080 units）が
  * 「毎回先頭からやり直す」「完走しないので毎日 due で居座る」の合わせ技で、
@@ -386,7 +483,8 @@ test.describe('収集スケジュールの飢餓耐性', () => {
    *  giveUp=false: 「2周続けて書き損ねたら諦める」上限を外した比較用（collect.mjs には無い状態）。 */
   function simulate({ aging, cursorResume, days = 60, reservedUnits = 0, top24hLastRunHour, flakyJob, giveUp = true }) {
     const plan = planSchedule({ dailyUnits: QUOTA.dailyUnits, reservedUnits });
-    const jobs = plan.jobs.filter(j => !j.skipped && j.costPerRun > 0 && j.id !== 'map');
+    // map（60 u/日）と chart（144 u/日）はリストを持たない激安ジョブなのでモデル外（誤差 2% 未満）
+    const jobs = plan.jobs.filter(j => !j.skipped && j.costPerRun > 0 && j.id !== 'map' && j.id !== 'chart');
     const cursor = {}, lapLeft = {}, dirtyLaps = {}, lastRun = {}, written = new Set(), spentByDay = {};
     const jobDays = Object.fromEntries(jobs.map(j => [j.id, new Set()]));
     if (top24hLastRunHour !== undefined) lastRun.top24h = top24hLastRunHour;
